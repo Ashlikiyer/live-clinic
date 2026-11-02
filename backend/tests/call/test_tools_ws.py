@@ -5,6 +5,7 @@ These use Postgres (the booking tools need it) and are skipped when it isn't rea
 
 import asyncio
 import json
+import uuid
 from collections.abc import AsyncIterator, Iterator
 from datetime import datetime, timedelta
 from typing import Any
@@ -20,7 +21,14 @@ from app.agent.prompt import GIVE_UP_LINE, GOODBYE_LINE
 from app.call.session import ToolDeps
 from app.core.config import get_settings
 from app.core.errors import ErrorCode
-from app.db.models import Doctor, SandboxAppointment, SeedAppointment, SeedPatient, ToolCall
+from app.db.models import (
+    Doctor,
+    SandboxAppointment,
+    SeedAppointment,
+    SeedPatient,
+    ToolCall,
+    Turn,
+)
 from app.db.session import check_database, get_engine, get_sessionmaker
 from app.main import create_app
 from app.providers.base import ChatMessage, LLMChunk, ProviderError, Providers
@@ -147,7 +155,7 @@ def test_book_a_new_appointment(sql_client: TestClient, llm: FakeLLM) -> None:
     ]
     token = new_token(sql_client)
     with sql_client.websocket_connect(f"/ws/call?token={token}") as ws:
-        start_call(ws)
+        call_id = start_call(ws)[0]["call_id"]
         first = say(ws, "I'm Juan Dela Cruz, born March 3 1990, 0917, for a cough.", 1)
         second = say(ws, "The first one please", 2)
         third = say(ws, "Yes", 3)
@@ -170,19 +178,31 @@ def test_book_a_new_appointment(sql_client: TestClient, llm: FakeLLM) -> None:
     assert confirmed["start"] == holding["start"]
     assert all(e["ok"] for e in of_type(first + second + third, "tool.finished"))
 
-    async def check_db() -> tuple[str, int]:
-        async with get_sessionmaker()() as db:
-            row = await db.get(
-                SandboxAppointment, __import__("uuid").UUID(confirmed["appointment_id"])
-            )
-            audits = await db.scalar(select(func.count()).select_from(ToolCall))
-        await get_engine().dispose()
+    async def check_db() -> tuple[str, list[str]]:
+        """This call's booking and tool audit rows. Audits are written by a background queue
+        just after each turn, so poll briefly instead of reading once."""
+        sessionmaker = fresh_sessionmaker()
+        names: list[str] = []
+        for _ in range(50):
+            async with sessionmaker() as db:
+                row = await db.get(SandboxAppointment, uuid.UUID(confirmed["appointment_id"]))
+                names = list(
+                    await db.scalars(
+                        select(ToolCall.name)
+                        .join(Turn, Turn.id == ToolCall.turn_id)
+                        .where(Turn.call_id == uuid.UUID(call_id))
+                        .order_by(Turn.index)
+                    )
+                )
+            if len(names) >= 4:
+                break
+            await asyncio.sleep(0.1)
         assert row is not None
-        return row.status, int(audits or 0)
+        return row.status, names
 
-    status, audits = asyncio.run(check_db())
+    status, audited = asyncio.run(check_db())
     assert status == "confirmed"
-    assert audits >= 4
+    assert audited == ["update_intake_form", "check_availability", "hold_slot", "confirm_booking"]
 
 
 def test_no_booking_without_readback_and_a_clear_yes(sql_client: TestClient, llm: FakeLLM) -> None:

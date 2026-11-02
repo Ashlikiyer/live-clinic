@@ -11,6 +11,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
+import anyio
 from fastapi import WebSocket, WebSocketDisconnect, status
 
 from app.agent.context import CallToolState
@@ -39,6 +40,8 @@ from app.schemas.events import (
 )
 
 log = logging.getLogger(__name__)
+
+FLUSH_TIMEOUT_S = 5.0
 
 
 @dataclass
@@ -156,10 +159,13 @@ class CallSession:
         except WebSocketDisconnect:
             pass
         finally:
-            await self._cancel_current()
-            if self._time_limit:
-                self._time_limit.cancel()
-            await self._flush_db()
+            # Even if this task is being cancelled (server shutdown, test client closing),
+            # finish the queued database writes so the last turns aren't lost. Capped at 5 s.
+            with anyio.CancelScope(shield=True), anyio.move_on_after(FLUSH_TIMEOUT_S):
+                await self._cancel_current()
+                if self._time_limit:
+                    self._time_limit.cancel()
+                await self._flush_db()
 
     async def _on_text(self, raw: str) -> None:
         event = parse_client_event(raw)
