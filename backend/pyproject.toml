@@ -1,0 +1,47 @@
+[project]
+name = "live-clinic-backend"
+version = "0.1.0"
+description = "Live Clinic Desk backend: FastAPI call orchestration, tools and API"
+requires-python = ">=3.12"
+dependencies = [
+    "alembic>=1.20.1",
+    "asyncpg>=0.32.0",
+    "fastapi>=0.115",
+    "pydantic-settings>=2.16.2",
+    "sqlalchemy[asyncio]>=2.0",
+    "tzdata>=2026.6",
+    "uvicorn[standard]>=0.32",
+]
+
+[tool.uv]
+package = false
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+extend-exclude = ["alembic/versions"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "ASYNC", "RUF"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+plugins = ["pydantic.mypy"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"
+# TODO: switch the dev dependency httpx -> httpx2 (Starlette's recommendation), then drop this filter.
+filterwarnings = ["ignore:Using `httpx` with `starlette.testclient` is deprecated"]
+
+[dependency-groups]
+dev = [
+    "httpx>=0.28.1",
+    "mypy>=2.4.1",
+    "pytest>=9.2.0",
+    "pytest-asyncio>=1.4.1.post1",
+    "ruff>=0.17.3",
+]

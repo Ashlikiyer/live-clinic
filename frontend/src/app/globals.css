@@ -1,0 +1,121 @@
+@import "tailwindcss";
+
+:root {
+  --bg: #f4f6f8;
+  --surface: #ffffff;
+  --surface-muted: #eef1f4;
+  --ink: #14202b;
+  --ink-muted: #5b6875;
+  --line: #dde3e9;
+  --brand: #0f766e;
+  --brand-ink: #ffffff;
+  --brand-soft: #ccfbf1;
+  --busy: #e3e7eb;
+  --busy-ink: #8a96a3;
+  --holding: #fde68a;
+  --holding-ink: #78350f;
+  --confirmed: #bbf7d0;
+  --confirmed-ink: #14532d;
+  --cancelled: #fecaca;
+  --cancelled-ink: #7f1d1d;
+  --offered: #38bdf8;
+  --glow: #a7f3d0;
+  --danger: #dc2626;
+
+  /* Latency X-ray stages */
+  --stage-vad: #94a3b8;
+  --stage-upload: #60a5fa;
+  --stage-stt: #a78bfa;
+  --stage-llm: #f472b6;
+  --stage-sentence: #fb923c;
+  --stage-tts: #34d399;
+  --stage-other: #d1d5db;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0b1117;
+    --surface: #121a22;
+    --surface-muted: #19232d;
+    --ink: #e6edf3;
+    --ink-muted: #93a1ae;
+    --line: #26323d;
+    --brand: #2dd4bf;
+    --brand-ink: #04211e;
+    --brand-soft: #123c38;
+    --busy: #222d38;
+    --busy-ink: #6b7a88;
+    --holding: #854d0e;
+    --holding-ink: #fef3c7;
+    --confirmed: #166534;
+    --confirmed-ink: #dcfce7;
+    --cancelled: #7f1d1d;
+    --cancelled-ink: #fee2e2;
+    --glow: #115e59;
+    --stage-other: #4b5563;
+  }
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-muted: var(--surface-muted);
+  --color-ink: var(--ink);
+  --color-ink-muted: var(--ink-muted);
+  --color-line: var(--line);
+  --color-brand: var(--brand);
+  --color-brand-ink: var(--brand-ink);
+  --color-brand-soft: var(--brand-soft);
+  --color-busy: var(--busy);
+  --color-busy-ink: var(--busy-ink);
+  --color-holding: var(--holding);
+  --color-holding-ink: var(--holding-ink);
+  --color-confirmed: var(--confirmed);
+  --color-confirmed-ink: var(--confirmed-ink);
+  --color-cancelled: var(--cancelled);
+  --color-cancelled-ink: var(--cancelled-ink);
+  --color-offered: var(--offered);
+  --color-danger: var(--danger);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+body {
+  background: var(--bg);
+  color: var(--ink);
+}
+
+@keyframes orb-pulse {
+  0%, 100% { transform: scale(1); opacity: 0.55; }
+  50% { transform: scale(1.18); opacity: 0.2; }
+}
+
+@keyframes hold-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.65; }
+}
+
+@keyframes mic-bar {
+  0%, 100% { transform: scaleY(0.25); }
+  50% { transform: scaleY(1); }
+}
+
+.animate-orb { animation: orb-pulse 1.4s ease-in-out infinite; }
+.animate-hold { animation: hold-pulse 1.2s ease-in-out infinite; }
+.animate-mic { animation: mic-bar 0.5s ease-in-out infinite; transform-origin: bottom; }
+
+.hatched {
+  background-image: repeating-linear-gradient(
+    -45deg,
+    rgb(255 255 255 / 0.55) 0 3px,
+    transparent 3px 6px
+  );
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-orb,
+  .animate-hold,
+  .animate-mic {
+    animation: none;
+  }
+}

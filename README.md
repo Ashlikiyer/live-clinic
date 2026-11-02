@@ -1,36 +1,88 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Live Clinic Desk
 
-## Getting Started
+A browser-based AI voice receptionist for a fictional clinic, Bayview Family Clinic. You
+click **Call the clinic** and talk naturally. On screen, you watch the agent book an
+appointment on a live calendar and fill in a patient intake form as you speak. A Latency
+X-ray shows how many milliseconds each reply took and which stage the time went to.
 
-First, run the development server:
+The full spec is in [docs/LIVE_CLINIC_DESK_SPEC.md](docs/LIVE_CLINIC_DESK_SPEC.md), and the
+rules for AI coding assistants are in [CLAUDE.md](CLAUDE.md).
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+> Demo only. All data is fake. Don't share real medical information.
+
+## Status
+
+**Phase 0 (skeleton)**, done except the deployment step:
+
+- `backend/`: FastAPI with `/api/health` and a WebSocket echo route at `/ws/call`, the
+  spec's error format, Alembic migrations for all tables, and a seed script.
+- `frontend/`: Next.js with the Call Desk layout (call panel, calendar, intake form, Latency
+  X-ray, summary card). For now it's driven by a scripted demo call that sends the same
+  typed events the real backend will send.
+- CI: GitHub Actions runs the lint, type check and test steps for both apps.
+
+Next is **Phase 1**: browser VAD → WAV → WebSocket → Groq Whisper → Groq LLM → sentences →
+Kokoro, plus latency metrics.
+
+## Repository layout
+
+```text
+backend/    FastAPI app (uv): app/, alembic/, seed/, tests/
+frontend/   Next.js app (npm): src/app, src/components, src/store, src/realtime, tests/
+docs/       Project spec
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Local setup
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+You need Python 3.12+, [uv](https://docs.astral.sh/uv/), Node.js 20+ (24 recommended), npm,
+Docker and Chrome.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+### Backend
 
-## Learn More
+```bash
+cd backend
+uv sync
+docker run -d --name clinic-db -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=clinic -p 5432:5432 postgres:16
+cp .env.example .env              # then edit it
+uv run alembic upgrade head
+uv run python -m seed             # doctors, clinic info, fake patients and appointments
+uv run uvicorn app.main:app --reload --port 8000   # http://localhost:8000
+```
 
-To learn more about Next.js, take a look at the following resources:
+If something else already uses port 5432 (for example a local PostgreSQL install), map the
+container to another port (`-p 5433:5432`) and change `DATABASE_URL` in `.env` to match.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Seeded appointments cover the past week and the next three weeks from the day you run the
+seed. Run `uv run python -m seed` again to refresh them. Doing so replaces all seed rows.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+### Frontend
 
-## Deploy on Vercel
+```bash
+cd frontend
+npm install
+cp .env.example .env.local
+npm run dev                       # http://localhost:3000
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+The microphone only works on `localhost` or HTTPS, so test at `http://localhost:3000`, not
+at a LAN IP address.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Checks
+
+```bash
+# Backend
+cd backend
+uv run ruff check . && uv run ruff format --check .
+uv run mypy app tests seed alembic/env.py
+uv run pytest                     # the DB test is skipped if Postgres isn't reachable
+
+# Frontend
+cd frontend
+npm run lint && npm run typecheck && npm test && npm run build
+```
+
+## What a real deployment would need
+
+This project is a demo. A real clinic deployment would also need patient consent,
+compliance with health-data rules (for example HIPAA in the US or the Data Privacy Act in
+the Philippines), a call-recording notice, audit logs, and access controls.
