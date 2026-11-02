@@ -6,6 +6,10 @@
  * - `turn_id` is a per-call integer that only increases. The greeting is turn 0.
  * - Calendar times are ISO 8601 strings in clinic local time with offset,
  *   e.g. "2026-11-04T14:30:00+08:00", so `start.slice(0, 10)` is the clinic date.
+ *
+ * Optional fields beyond the spec, so the browser can report the stages it measures:
+ * `vad_wait_ms` on the audio header, `tts_ms` on `tts.first_audio`, and `resume_call_id`
+ * on `call.start` to rejoin a call after the socket drops.
  */
 
 export type DoctorId = string;
@@ -113,10 +117,10 @@ export type ServerEventOf<T extends ServerEventType> = Extract<ServerEvent, { ty
 // ---------- Client -> server ----------
 
 export type ClientEvent =
-  | Event<"call.start", { voice: "kokoro" | "lite"; captions: boolean }>
+  | Event<"call.start", { voice: "kokoro" | "lite"; captions: boolean; resume_call_id?: string }>
   | Event<"text.message", { text: string }>
   | Event<"user.interrupt", { turn_id: number; played_text: string; played_ms: number }>
-  | Event<"tts.first_audio", { turn_id: number }>
+  | Event<"tts.first_audio", { turn_id: number; tts_ms?: number }>
   | Event<"call.end", { reason: "user" }>
   | Event<"ping">;
 
@@ -125,4 +129,5 @@ export interface AudioUtteranceHeader {
   type: "audio.utterance";
   turn_id: number;
   speech_end_ts: number;
+  vad_wait_ms?: number;
 }

@@ -10,6 +10,13 @@ import { Orb } from "./Orb";
 import { Transcript } from "./Transcript";
 import { TypeInput } from "./TypeInput";
 
+export interface CallControls {
+  onEnd: () => void;
+  onToggleMute: () => void;
+  /** Null when typing isn't available (the scripted demo). */
+  onSendText: ((text: string) => void) | null;
+}
+
 const STATUS_LABEL = {
   idle: "Ready",
   connecting: "Connecting...",
@@ -38,14 +45,40 @@ function useCallTimer(): string {
   return formatDuration(((endedAt ?? now ?? startedAt) - startedAt) / 1000);
 }
 
-export function CallPanel({ onEnd }: { onEnd: () => void }) {
+function Banner({ tone, children }: { tone: "info" | "warn"; children: React.ReactNode }) {
+  return (
+    <div
+      role="status"
+      className={`mx-3 mt-3 rounded-xl px-3 py-2 text-xs leading-relaxed ${
+        tone === "warn"
+          ? "bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-100"
+          : "bg-surface-muted text-ink-muted"
+      }`}
+    >
+      {children}
+    </div>
+  );
+}
+
+export function CallPanel({ controls }: { controls: CallControls }) {
   const status = useCallStore((s) => s.status);
+  const kind = useCallStore((s) => s.kind);
   const speaking = useCallStore((s) => s.agentSpeaking);
+  const userSpeaking = useCallStore((s) => s.userSpeaking);
   const muted = useCallStore((s) => s.muted);
-  const toggleMute = useCallStore((s) => s.toggleMute);
+  const mic = useCallStore((s) => s.mic);
+  const voiceMode = useCallStore((s) => s.voiceMode);
+  const connection = useCallStore((s) => s.connection);
+  const notice = useCallStore((s) => s.notice);
   const activeTools = useCallStore((s) => s.activeTools);
   const timer = useCallTimer();
   const active = status === "live" || status === "connecting" || status === "transferring";
+
+  const activity = activeTools.length
+    ? `Working: ${activeTools[0].replaceAll("_", " ")}...`
+    : userSpeaking
+      ? "Listening..."
+      : "";
 
   return (
     <section
@@ -55,27 +88,57 @@ export function CallPanel({ onEnd }: { onEnd: () => void }) {
       <div className="flex items-center gap-4 border-b border-line p-4">
         <Orb speaking={speaking} />
         <div className="min-w-0 flex-1">
-          <p className="font-semibold">Mia · Receptionist</p>
+          <p className="flex items-center gap-2 font-semibold">
+            Mia · Receptionist
+            {voiceMode === "lite" && kind === "live" && (
+              <span
+                className="rounded-full bg-surface-muted px-2 py-0.5 text-[10px] font-medium text-ink-muted"
+                title="Using your browser's built-in voice"
+              >
+                lite voice
+              </span>
+            )}
+          </p>
           <p className="flex items-center gap-2 text-sm text-ink-muted">
             <span className={`size-2 rounded-full ${active ? "bg-green-500" : "bg-ink-muted"}`} />
             {STATUS_LABEL[status]} · <span className="tabular-nums">{timer}</span>
           </p>
           <p className="h-4 truncate text-xs text-brand" aria-live="polite">
-            {activeTools.length > 0 ? `Working: ${activeTools[0].replaceAll("_", " ")}...` : ""}
+            {activity}
           </p>
         </div>
         <MicMeter />
       </div>
 
+      {notice && <Banner tone="warn">{notice}</Banner>}
+      {connection === "reconnecting" && (
+        <Banner tone="warn">Connection dropped. Reconnecting...</Banner>
+      )}
+      {kind === "live" && mic === "denied" && (
+        <Banner tone="warn">
+          Microphone blocked. To talk to Mia, click the lock or site-settings icon in the address
+          bar, allow the microphone, then call again. You can type below meanwhile.
+        </Banner>
+      )}
+      {kind === "live" && mic === "unavailable" && (
+        <Banner tone="warn">No microphone found. You can type your messages below instead.</Banner>
+      )}
+      {kind === "live" && mic === "starting" && (
+        <Banner tone="info">Allow microphone access when your browser asks.</Banner>
+      )}
+      {kind === "demo" && (
+        <Banner tone="info">Scripted demo: no microphone needed. Just watch.</Banner>
+      )}
+
       <Transcript />
 
       <div className="space-y-3 border-t border-line p-3">
-        <TypeInput disabled={!active} />
+        <TypeInput disabled={!active || controls.onSendText === null} onSend={controls.onSendText} />
         <div className="flex gap-2">
           <button
             type="button"
-            onClick={toggleMute}
-            disabled={!active}
+            onClick={controls.onToggleMute}
+            disabled={!active || (kind === "live" && mic !== "listening")}
             aria-pressed={muted}
             className="flex-1 rounded-full border border-line px-4 py-2 text-sm font-medium transition hover:bg-surface-muted disabled:opacity-50"
           >
@@ -83,7 +146,7 @@ export function CallPanel({ onEnd }: { onEnd: () => void }) {
           </button>
           <button
             type="button"
-            onClick={onEnd}
+            onClick={controls.onEnd}
             disabled={!active}
             className="flex-1 rounded-full bg-danger px-4 py-2 text-sm font-semibold text-white transition hover:opacity-90 disabled:opacity-50"
           >

@@ -1,0 +1,42 @@
+"""Groq Whisper speech-to-text over plain httpx."""
+
+import httpx
+
+from app.core.errors import ErrorCode
+from app.providers.base import ProviderError
+
+GROQ_BASE_URL = "https://api.groq.com/openai/v1"
+
+
+def error_for(response: httpx.Response, default: ErrorCode, what: str) -> ProviderError:
+    if response.status_code == 429:
+        return ProviderError(ErrorCode.RATE_LIMITED, "Busy right now, try again in a minute.")
+    retryable = response.status_code >= 500
+    return ProviderError(default, f"{what} failed ({response.status_code}).", retryable=retryable)
+
+
+class GroqSTT:
+    def __init__(self, client: httpx.AsyncClient, api_key: str, model: str) -> None:
+        self._client = client
+        self._api_key = api_key
+        self._model = model
+
+    async def transcribe(self, wav: bytes) -> str:
+        try:
+            response = await self._client.post(
+                f"{GROQ_BASE_URL}/audio/transcriptions",
+                headers={"Authorization": f"Bearer {self._api_key}"},
+                files={"file": ("utterance.wav", wav, "audio/wav")},
+                data={
+                    "model": self._model,
+                    "language": "en",
+                    "temperature": "0",
+                    "response_format": "json",
+                },
+                timeout=15.0,
+            )
+        except httpx.HTTPError as exc:
+            raise ProviderError(ErrorCode.STT_FAILED, f"Transcription failed: {exc}") from exc
+        if response.status_code != 200:
+            raise error_for(response, ErrorCode.STT_FAILED, "Transcription")
+        return str(response.json().get("text", "")).strip()

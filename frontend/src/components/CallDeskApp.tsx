@@ -3,58 +3,106 @@
 import { MotionConfig } from "motion/react";
 import { useCallback, useEffect, useRef } from "react";
 
-import { CallDesk } from "@/components/CallDesk";
+import { CallDesk, type CallControls } from "@/components/CallDesk";
 import { Landing } from "@/components/Landing";
 import { SummaryCard } from "@/components/summary/SummaryCard";
 import { callStats } from "@/lib/stats";
 import { clinicDate } from "@/lib/time";
 import { playDemo } from "@/mock/playDemo";
+import { LiveCall } from "@/realtime/liveCall";
 import { useCallStore } from "@/store/callStore";
 import { latestConfirmed } from "@/store/reducer";
+import type { Voice } from "@/voice/player";
+import { LiteVoice, getAudioContext, kokoroPreferred, loadKokoro } from "@/voice/tts";
+
+/**
+ * Kokoro if it has loaded and this device can synthesize faster than real time; otherwise the
+ * zero-download lite voice, so the call starts now and stays responsive.
+ */
+async function pickVoice(useKokoro: boolean): Promise<Voice> {
+  if (useKokoro || !LiteVoice.available()) return loadKokoro();
+  return new LiteVoice();
+}
 
 export function CallDeskApp() {
   const status = useCallStore((s) => s.status);
+  const kind = useCallStore((s) => s.kind);
+  const live = useRef<LiveCall | null>(null);
   const stopDemo = useRef<(() => void) | null>(null);
 
-  const start = useCallback(() => {
-    stopDemo.current?.();
-    const now = Date.now();
-    useCallStore.getState().startCall(now);
-    stopDemo.current = playDemo(clinicDate(new Date(now)));
-  }, []);
-
-  const end = useCallback(() => {
+  const stopAll = useCallback(() => {
+    live.current?.dispose();
+    live.current = null;
     stopDemo.current?.();
     stopDemo.current = null;
+  }, []);
+
+  const startLive = useCallback(
+    async (useKokoro: boolean) => {
+      stopAll();
+      // Create the audio context inside the click so the browser allows playback.
+      getAudioContext();
+      const call = new LiveCall(await pickVoice(useKokoro));
+      live.current = call;
+      await call.start();
+    },
+    [stopAll],
+  );
+
+  const startDemo = useCallback(() => {
+    stopAll();
+    const now = Date.now();
+    useCallStore.getState().startCall(now, "demo");
+    stopDemo.current = playDemo(clinicDate(new Date(now)));
+  }, [stopAll]);
+
+  const endDemo = useCallback(() => {
+    stopAll();
     const store = useCallStore.getState();
     if (store.status === "ended") return;
     const now = Date.now();
-    // Phase 0 only: the server sends call.ended once the socket is wired up.
     store.applyEvent({
       type: "call.ended",
       ts: now,
       outcome: latestConfirmed(store.appointments) ? "booked" : "abandoned",
-      summary: "The caller ended the call.",
+      summary: "The caller ended the demo call.",
       stats: callStats(store.metrics, (now - (store.startedAt ?? now)) / 1000),
     });
-  }, []);
+  }, [stopAll]);
 
-  const callAgain = useCallback(() => {
+  const controls: CallControls = {
+    onEnd: () => (kind === "live" ? void live.current?.end() : endDemo()),
+    onSendText: kind === "live" ? (text) => live.current?.sendText(text) : null,
+    onToggleMute: () => {
+      const muted = !useCallStore.getState().muted;
+      if (kind === "live") void live.current?.setMuted(muted);
+      else useCallStore.getState().setMuted(muted);
+    },
+  };
+
+  const backToStart = useCallback(() => {
+    stopAll();
     useCallStore.getState().reset();
-    start();
-  }, [start]);
+  }, [stopAll]);
 
-  useEffect(() => () => stopDemo.current?.(), []);
+  useEffect(() => stopAll, [stopAll]);
 
   return (
     <MotionConfig reducedMotion="user">
       {status === "idle" ? (
-        <Landing onCall={start} />
+        <Landing onCall={(ready) => void startLive(ready)} onDemo={startDemo} />
       ) : (
         <>
-          <CallDesk onEnd={end} />
+          <CallDesk controls={controls} />
           {status === "ended" && (
-            <SummaryCard onCallAgain={callAgain} onClose={() => useCallStore.getState().reset()} />
+            <SummaryCard
+              onCallAgain={() => {
+                backToStart();
+                if (kind === "demo") startDemo();
+                else void startLive(kokoroPreferred());
+              }}
+              onClose={backToStart}
+            />
           )}
         </>
       )}

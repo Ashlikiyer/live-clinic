@@ -365,6 +365,11 @@ export function markInterrupted(state: CallData, turnId: number, playedText: str
   };
 }
 
+/** The caller started a new turn: agent text for older turns is now stale. */
+export function beginTurn(state: CallData, turnId: number): CallData {
+  return { ...state, currentTurnId: Math.max(state.currentTurnId, turnId) };
+}
+
 /** Required before `confirm_booking`, per the spec. */
 export const REQUIRED_FIELDS: FormField[] = ["full_name", "date_of_birth", "phone", "reason"];
 

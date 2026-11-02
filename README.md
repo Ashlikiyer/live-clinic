@@ -12,17 +12,60 @@ rules for AI coding assistants are in [CLAUDE.md](CLAUDE.md).
 
 ## Status
 
-**Phase 0 (skeleton)**, done except the deployment step:
+- **Phase 0 (skeleton):** done, except deployment.
+- **Phase 1 (real voice loop):** done. The browser's Silero VAD records the caller and sends
+  16 kHz WAV over the WebSocket. Groq Whisper transcribes it, then the emergency keyword
+  check runs before the LLM. The Groq LLM streams the reply, which is split into sentences
+  and spoken by Kokoro in the browser. Barge-in, per-turn latency metrics, a typed-message
+  fallback, and one automatic reconnect are all working. The calendar and intake form tools
+  come in Phase 2. Until then Mia offers a staff callback for bookings, and the calendar
+  shows mock data.
 
-- `backend/`: FastAPI with `/api/health` and a WebSocket echo route at `/ws/call`, the
-  spec's error format, Alembic migrations for all tables, and a seed script.
-- `frontend/`: Next.js with the Call Desk layout (call panel, calendar, intake form, Latency
-  X-ray, summary card). For now it's driven by a scripted demo call that sends the same
-  typed events the real backend will send.
-- CI: GitHub Actions runs the lint, type check and test steps for both apps.
+Next is **Phase 2**: availability, booking and the agent tools.
 
-Next is **Phase 1**: browser VAD → WAV → WebSocket → Groq Whisper → Groq LLM → sentences →
-Kokoro, plus latency metrics.
+## Measured latency (Phase 1)
+
+These are real calls on a Windows laptop with an AMD integrated GPU (RDNA 2), Microsoft
+Edge, Groq free tier and a local backend. Each value is the time from the end of the
+caller's speech to Mia's first audio, measured in the browser.
+
+| Stage | Reply with a cached opener | Reply without a cached opener |
+| --- | --- | --- |
+| End-of-speech wait (VAD) | 600 ms | 600 ms |
+| Upload | ~20 ms | ~20 ms |
+| Speech-to-text (Groq `whisper-large-v3-turbo`) | 620 ms | 620 ms |
+| LLM first token (Groq `qwen/qwen3.8-27b`, reasoning off) | 259 ms | 241 ms |
+| First sentence ready | 4 ms | 4 ms |
+| Voice start (Kokoro, WebGPU fp16) | 5 ms | 1,123 ms |
+| **Total** | **1,508 ms** | **2,618 ms** |
+
+Measured Kokoro speed: WebGPU fp16 synthesizes at 0.5–0.6× real time after warm-up. WASM
+q8, used when there's no WebGPU, runs at about 2.7× real time, which is too slow to keep up
+with speech. Four tricks keep the first audio fast:
+
+- Mia is prompted to start every reply with a short opener ("Sure.", "Of course."...).
+  Those openers are generated ahead of time while the landing page is open, so they play
+  instantly while the rest of the reply synthesizes.
+- The greeting and recovery lines are pre-generated the same way.
+- Live speech always goes ahead of background pre-generation in the worker queue.
+- A device that synthesizes slower than real time starts with the browser's built-in "lite"
+  voice. A device that gets two slow replies in a row switches to it mid-call.
+
+The first visit downloads the voice model once (163 MB on WebGPU, 92 MB on WASM). After
+that the browser serves it from cache.
+
+### Notes on the spec
+
+- **LLM:** `llama-3.3-70b-versatile` isn't available to this Groq key. `qwen/qwen3.8-27b`
+  with `LLM_REASONING_EFFORT=none` replied fastest (about 370 ms vs about 700 ms for the
+  `gpt-oss` models) and followed Mia's rules best.
+- **Extra event fields:** three optional fields extend the spec's protocol so the browser
+  can report the stages it measures. `vad_wait_ms` is on the audio header, `tts_ms` is on
+  `tts.first_audio`, and `resume_call_id` on `call.start` rejoins a call after a dropped
+  connection.
+- **Cross-origin isolation:** the frontend sends `Cross-Origin-Opener-Policy` and
+  `Cross-Origin-Embedder-Policy: credentialless` headers, which let the Kokoro worker use
+  multi-threaded WebAssembly.
 
 ## Repository layout
 
