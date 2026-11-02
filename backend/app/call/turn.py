@@ -1,21 +1,36 @@
-"""Turn runner: speech-to-text -> emergency check -> LLM stream -> sentences.
+"""Turn runner: speech-to-text -> emergency check -> LLM stream -> tools -> sentences.
 
-Tools join this loop in Phase 2.
+The tool loop: stream the LLM reply (text is spoken as it arrives); if it asks for tools, run up
+to MAX_TOOLS_PER_ROUND of them, send their UI events, and call the LLM again with the results.
+At most MAX_ROUNDS LLM round-trips per caller turn, then apologize and offer a callback.
 """
 
 import asyncio
+import json
 import time
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
-from app.agent.prompt import LLM_RECOVERY_LINE, STT_RECOVERY_LINE, build_system_prompt
+from app.agent.context import ToolContext
+from app.agent.handlers import run_tool
+from app.agent.prompt import (
+    GIVE_UP_LINE,
+    GOODBYE_LINE,
+    LLM_RECOVERY_LINE,
+    STT_RECOVERY_LINE,
+    build_system_prompt,
+)
+from app.agent.tools import tool_specs
 from app.call.emergency import EMERGENCY_REPLY, detect_emergency
-from app.call.sentences import SentenceSplitter
-from app.providers.base import ProviderError
+from app.call.sentences import MetaTextFilter, SentenceSplitter, is_question
+from app.providers.base import ChatMessage, ProviderError, ToolCallRequest
 from app.schemas.events import now_ms
 
 if TYPE_CHECKING:
     from app.call.session import CallSession
+
+MAX_TOOLS_PER_ROUND = 3
+MAX_ROUNDS = 4
 
 
 async def run_turn(
@@ -55,45 +70,148 @@ async def run_turn(
         )
         return
 
-    await _stream_reply(call, turn_id)
+    await _reply(call, turn_id)
 
 
-async def _stream_reply(call: "CallSession", turn_id: int) -> None:
+def _tool_context(call: "CallSession", turn_id: int) -> ToolContext:
+    assert call.tools is not None and call.call_id is not None
+    return ToolContext(
+        session_id=call.session.id,
+        call_id=call.call_id,
+        turn_id=turn_id,
+        last_user_text=call.history.last_user_text(),
+        repo=call.tools.booking,
+        clinic=call.tools.clinic,
+        llm=call.providers.llm,
+        tz=call.tz,
+        state=call.tool_state,
+    )
+
+
+async def _reply(call: "CallSession", turn_id: int) -> None:
     record = call.turns[turn_id]
     timing = record.timing
-    messages = call.history.to_messages(build_system_prompt(datetime.now(call.tz)))
+    tools = tool_specs() if call.tools is not None else None
+    system = build_system_prompt(datetime.now(call.tz), tools_enabled=tools is not None)
+    messages = call.history.to_messages(system)
     entry = call.history.add_assistant(turn_id, "")
     splitter = SentenceSplitter()
+    meta = MetaTextFilter()
     index = 0
+    # Once Mia asks a question, the rest of the turn's text is dropped (tools still run): one
+    # question per turn, and no "answering for the caller" by an over-eager model.
+    asked = False
 
     async def emit(sentence: str) -> None:
-        nonlocal index
+        nonlocal index, asked
+        if asked:
+            return
         if index == 0:
             timing.first_sentence_at = now_ms()
+        delta = f" {sentence}" if entry.text else sentence
+        entry.text += delta
+        await call.send("agent.text.delta", turn_id=turn_id, delta=delta)
         await call.send("agent.sentence", turn_id=turn_id, index=index, text=sentence)
         index += 1
+        asked = is_question(sentence)
+
+    async def say(raw: str) -> None:
+        if timing.first_token_at is None:
+            timing.first_token_at = now_ms()
+        for sentence in splitter.feed(meta.feed(raw)):
+            await emit(sentence)
+
+    async def flush() -> None:
+        if (pending := splitter.flush()) is not None:
+            await emit(pending)
 
     timing.llm_started_at = now_ms()
     try:
-        async for delta in call.providers.llm.stream(messages):
-            if timing.first_token_at is None:
-                timing.first_token_at = now_ms()
-            entry.text += delta
-            await call.send("agent.text.delta", turn_id=turn_id, delta=delta)
-            for sentence in splitter.feed(delta):
-                await emit(sentence)
-        if (last := splitter.flush()) is not None:
-            await emit(last)
+        for _ in range(MAX_ROUNDS):
+            requests: list[ToolCallRequest] = []
+            spoken_before = len(entry.text)
+            async for chunk in call.providers.llm.stream(messages, tools):
+                if isinstance(chunk, ToolCallRequest):
+                    requests.append(chunk)
+                else:
+                    await say(chunk)
+            if not requests:
+                break
+            # Speak what came before the tool calls ("Let me check.") right away.
+            await flush()
+            round_text = entry.text[spoken_before:].strip()
+            results = await _run_tools(call, turn_id, requests)
+            call.history.add_tool_exchange(entry, tuple(requests), results)
+            if call.tool_state.end_request is not None and entry.text:
+                break  # the goodbye was already said; don't ask the LLM to say it again
+            if asked:
+                # Mia already asked her question; anything more would be dropped anyway.
+                # The tool results stay in the history for the next turn. Saves an LLM call.
+                break
+            messages.append(ChatMessage("assistant", round_text, tool_calls=tuple(requests)))
+            messages += [ChatMessage("tool", content, tool_call_id=cid) for cid, content in results]
+        else:
+            await flush()
+            asked = False  # the apology must always be heard
+            await say(GIVE_UP_LINE)
+        await flush()
         await call.send("agent.text.done", turn_id=turn_id)
     except ProviderError as exc:
-        call.history.entries.remove(entry)
+        if (end := call.tool_state.end_request) is not None:
+            # end_call already went through: say goodbye ourselves and hang up as agreed.
+            call.tool_state.end_request = None
+            await call.speak(GOODBYE_LINE, turn_id)
+            await call.end(end.outcome, end.summary)
+            return
+        if not entry.text:
+            call.history.entries.remove(entry)
         await call.send_error(exc.code, exc.message, exc.retryable)
         await call.speak(LLM_RECOVERY_LINE, turn_id)
         return
     except asyncio.CancelledError:
         # Barge-in or a newer turn: keep what was generated; the interrupt handler trims it.
         record.db_turn_id = call.save_turn("assistant", entry.text, interrupted=True)
+        call.save_tool_calls(record)
         raise
 
     record.db_turn_id = call.save_turn("assistant", entry.text, entry.interrupted)
+    call.save_tool_calls(record)
     call.persist_metrics(turn_id)
+
+    if (end := call.tool_state.end_request) is not None:
+        call.tool_state.end_request = None
+        await call.end(end.outcome, end.summary)
+
+
+async def _run_tools(
+    call: "CallSession", turn_id: int, requests: list[ToolCallRequest]
+) -> list[tuple[str, str]]:
+    """Run up to MAX_TOOLS_PER_ROUND tools in order; returns (tool_call_id, result JSON)."""
+    record = call.turns[turn_id]
+    results: list[tuple[str, str]] = []
+    for position, request in enumerate(requests):
+        if position >= MAX_TOOLS_PER_ROUND:
+            skipped: dict[str, Any] = {
+                "error": "TOO_MANY_TOOLS",
+                "message": f"At most {MAX_TOOLS_PER_ROUND} tools per step. Call it again next.",
+            }
+            results.append((request.id, json.dumps(skipped)))
+            continue
+        await call.send("tool.started", turn_id=turn_id, name=request.name)
+        run = await run_tool(_tool_context(call, turn_id), request)
+        for event_type, payload in run.result.events:
+            await call.send(event_type, **payload)
+        await call.send(
+            "tool.finished", turn_id=turn_id, name=request.name, ok=run.result.ok, ms=run.ms
+        )
+        record.tool_calls.append(
+            {
+                "name": request.name,
+                "args": run.args,
+                "result": run.result.data,
+                "ok": run.result.ok,
+                "ms": run.ms,
+            }
+        )
+        results.append((request.id, run.content()))
+    return results

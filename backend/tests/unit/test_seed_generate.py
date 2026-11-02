@@ -11,7 +11,8 @@ from app.core.clinic import (
     VISIT_MINUTES,
     VisitType,
 )
-from seed.generate import GeneratedAppointment, day_blocks, generate_appointments
+from app.scheduling.availability import day_blocks
+from seed.generate import GeneratedAppointment, generate_appointments
 
 TZ = ZoneInfo("Asia/Manila")
 DOCTORS = ["dr-reyes", "dr-cruz", "dr-santos"]

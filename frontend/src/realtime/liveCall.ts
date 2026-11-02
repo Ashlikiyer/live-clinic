@@ -4,19 +4,25 @@
  * server is told exactly what was heard.
  */
 
-import { ApiError, callSocketUrl, forgetSession, getSessionToken } from "@/lib/api";
+import { ApiError, callSocketUrl, fetchClinic, forgetSession, getSessionToken } from "@/lib/api";
 import { callStats } from "@/lib/stats";
 import { useCallStore } from "@/store/callStore";
+import { FILLER_LINE, NUDGE_LINE, SILENCE_GOODBYE_LINE } from "@/voice/phrases";
 import { SentencePlayer, type Voice } from "@/voice/player";
 import { LiteVoice, resumeAudio } from "@/voice/tts";
 import { BARGE_IN_MIN_MS, SlowVoiceDetector, shouldSendUtterance, type Utterance } from "@/voice/turnTaking";
 import { MicError, startMic, type Mic, type SpeechEndInfo } from "@/voice/vad";
 import { encodeWav } from "@/voice/wav";
 
+import { setCalendarSource } from "./calendarSource";
 import type { ServerEvent } from "./events";
 import { CallSocket } from "./socket";
 
 const END_TIMEOUT_MS = 3000;
+/** Play the filler line if a tool runs this long with nothing said yet. */
+const FILLER_AFTER_MS = 700;
+/** Ask "Are you still there?" after this much silence, then end after the same again. */
+const SILENCE_MS = 8000;
 
 const ERROR_NOTICES: Partial<Record<string, string>> = {
   RATE_LIMITED: "Busy right now, try again in a minute.",
@@ -36,10 +42,17 @@ export class LiveCall {
   private bargeTimer: ReturnType<typeof setTimeout> | null = null;
   private finished = false;
   private endWaiter: (() => void) | null = null;
+  private fillerTimer: ReturnType<typeof setTimeout> | null = null;
+  private silenceTimer: ReturnType<typeof setTimeout> | null = null;
+  private nudged = false;
 
   constructor(private voice: Voice) {
     this.player = new SentencePlayer(voice, {
-      onSpeakingChange: (speaking) => store().setAgentSpeaking(speaking),
+      onSpeakingChange: (speaking) => {
+        store().setAgentSpeaking(speaking);
+        if (speaking) this.clearSilence();
+        else this.armSilence();
+      },
       onFirstAudio: (turnId, ttsMs) => this.onFirstAudio(turnId, ttsMs),
     });
   }
@@ -74,6 +87,12 @@ export class LiveCall {
     }
     if (this.finished) return;
 
+    // The calendar shows this caller's real sandbox, and doctors come from the clinic API.
+    setCalendarSource(token);
+    fetchClinic(token)
+      .then((clinic) => store().setDoctors(clinic.doctors))
+      .catch(() => undefined);
+
     this.socket = new CallSocket({
       url: callSocketUrl(token),
       onEvent: (event) => this.onEvent(event),
@@ -96,6 +115,7 @@ export class LiveCall {
     const trimmed = text.trim();
     if (!trimmed || this.finished) return;
     if (this.player.isSpeaking) this.bargeIn();
+    this.callerActive();
     store().beginTurn(store().currentTurnId + 1);
     this.socket?.send({ type: "text.message", text: trimmed });
   }
@@ -107,12 +127,21 @@ export class LiveCall {
   }
 
   /** Caller pressed End call: ask the server to wrap up, but don't wait forever. */
-  async end(): Promise<void> {
+  async end(reason: "user" | "silence" = "user"): Promise<void> {
     if (this.finished) return;
     const ended = new Promise<void>((resolve) => (this.endWaiter = resolve));
-    this.socket?.send({ type: "call.end", reason: "user" });
+    this.socket?.send({ type: "call.end", reason });
     await Promise.race([ended, new Promise((r) => setTimeout(r, END_TIMEOUT_MS))]);
-    this.endLocally("abandoned", "The caller ended the call.");
+    this.endLocally(
+      "abandoned",
+      reason === "silence" ? "The caller went silent." : "The caller ended the call.",
+    );
+  }
+
+  /** The caller typed something: silence rules start over. */
+  callerActive(): void {
+    this.nudged = false;
+    this.clearSilence();
   }
 
   /** Stop everything at once, including audio (leaving the page or starting over). */
@@ -137,12 +166,17 @@ export class LiveCall {
     store().applyEvent(event);
 
     switch (event.type) {
+      case "tool.started":
+        this.armFiller(event.turn_id);
+        break;
       case "agent.sentence":
+        this.clearFiller();
         if (event.turn_id >= store().currentTurnId) {
           this.player.enqueue(event.turn_id, event.index, event.text);
         }
         break;
       case "agent.text.done":
+        this.clearFiller();
         this.player.markDone(event.turn_id);
         break;
       case "error": {
@@ -166,6 +200,7 @@ export class LiveCall {
 
   private onSpeechStart(): void {
     if (this.finished || store().muted) return;
+    this.callerActive();
     store().setUserSpeaking(true);
     const agentSpeakingAtStart = this.player.isSpeaking;
     this.utterance = { agentSpeakingAtStart, bargedIn: false };
@@ -223,6 +258,50 @@ export class LiveCall {
     this.bargeTimer = null;
   }
 
+  // ---------- filler and silence ----------
+
+  private armFiller(turnId: number): void {
+    if (this.fillerTimer || this.player.isSpeaking) return;
+    this.fillerTimer = setTimeout(() => {
+      this.fillerTimer = null;
+      if (!this.finished && !this.player.isSpeaking && turnId >= store().currentTurnId) {
+        void this.player.sayAside(FILLER_LINE);
+      }
+    }, FILLER_AFTER_MS);
+  }
+
+  private clearFiller(): void {
+    if (this.fillerTimer) clearTimeout(this.fillerTimer);
+    this.fillerTimer = null;
+  }
+
+  /** Mia just stopped talking: if the caller says nothing for 8 s, check in. */
+  private armSilence(): void {
+    this.clearSilence();
+    const s = store();
+    if (this.finished || s.mic !== "listening" || s.muted || s.status !== "live") return;
+    this.silenceTimer = setTimeout(() => void this.onSilence(), SILENCE_MS);
+  }
+
+  private clearSilence(): void {
+    if (this.silenceTimer) clearTimeout(this.silenceTimer);
+    this.silenceTimer = null;
+  }
+
+  private async onSilence(): Promise<void> {
+    this.silenceTimer = null;
+    if (this.finished || store().userSpeaking || this.player.isSpeaking) return;
+    if (!this.nudged) {
+      this.nudged = true;
+      store().addLocalLine(NUDGE_LINE);
+      await this.player.sayAside(NUDGE_LINE);
+      return; // speaking -> silent re-arms the timer for the second 8 s
+    }
+    store().addLocalLine(SILENCE_GOODBYE_LINE);
+    await this.player.sayAside(SILENCE_GOODBYE_LINE);
+    await this.end("silence");
+  }
+
   // ---------- voice ----------
 
   private onFirstAudio(turnId: number, ttsMs: number): void {
@@ -260,6 +339,8 @@ export class LiveCall {
   private teardown(): void {
     this.finished = true;
     this.clearBargeTimer();
+    this.clearFiller();
+    this.clearSilence();
     void this.mic?.destroy();
     this.mic = null;
     this.socket?.close();

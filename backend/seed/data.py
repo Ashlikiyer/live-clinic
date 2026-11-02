@@ -3,6 +3,8 @@
 from datetime import date
 from typing import TypedDict
 
+from app.core.clinic import PEDIATRICS_DOCTOR_ID
+
 
 class DoctorSeed(TypedDict):
     id: str
@@ -22,8 +24,6 @@ class PatientSeed(TypedDict):
     date_of_birth: date
     phone: str
 
-
-PEDIATRICS_DOCTOR_ID = "dr-cruz"
 
 DOCTORS: list[DoctorSeed] = [
     {"id": "dr-reyes", "name": "Dr. Ana Reyes", "specialty": "Family medicine", "color": "#2563eb"},

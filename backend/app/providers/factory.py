@@ -3,7 +3,7 @@ import httpx
 from app.core.config import Settings
 from app.providers.base import Providers
 from app.providers.fake import FakeLLM, FakeSTT
-from app.providers.groq_llm import GroqLLM
+from app.providers.groq_llm import GroqLLM, parse_model_list
 from app.providers.groq_stt import GroqSTT
 
 
@@ -19,5 +19,6 @@ def build_providers(settings: Settings, client: httpx.AsyncClient) -> Providers:
             settings.groq_api_key,
             settings.llm_model,
             reasoning_effort=settings.llm_reasoning_effort,
+            fallbacks=parse_model_list(settings.llm_fallback_models),
         ),
     )

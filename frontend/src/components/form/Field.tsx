@@ -2,15 +2,17 @@
 
 import { motion } from "motion/react";
 
+import { formatFormValue } from "@/lib/time";
 import type { FormValue } from "@/store/reducer";
 
 interface FieldProps {
+  field: string;
   label: string;
   required?: boolean;
   value?: FormValue;
 }
 
-export function Field({ label, required, value }: FieldProps) {
+export function Field({ field, label, required, value }: FieldProps) {
   return (
     <motion.div
       // Re-mount on each update so the glow replays.
@@ -36,7 +38,7 @@ export function Field({ label, required, value }: FieldProps) {
         )}
       </dt>
       <dd className={`mt-0.5 min-h-5 text-sm ${value ? "font-medium" : "text-ink-muted/60"}`}>
-        {value?.value ?? "—"}
+        {value ? formatFormValue(field, value.value) : "—"}
       </dd>
     </motion.div>
   );

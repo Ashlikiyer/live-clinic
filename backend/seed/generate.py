@@ -3,19 +3,11 @@
 import random
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import date, datetime, time, timedelta
+from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from app.core.clinic import (
-    CLOSE_TIME,
-    LUNCH_END,
-    LUNCH_START,
-    OPEN_TIME,
-    OPEN_WEEKDAYS,
-    SLOT_MINUTES,
-    VISIT_MINUTES,
-    VisitType,
-)
+from app.core.clinic import OPEN_WEEKDAYS, SLOT_MINUTES, VISIT_MINUTES, VisitType
+from app.scheduling.availability import day_blocks
 
 FILL_RATE = 0.5
 ANNUAL_CHECKUP_RATE = 0.15
@@ -28,21 +20,6 @@ class GeneratedAppointment:
     start: datetime
     end: datetime
     visit_type: VisitType
-
-
-def _block_starts(block_start: time, block_end: time) -> list[time]:
-    starts: list[time] = []
-    cursor = datetime.combine(date.min, block_start)
-    end = datetime.combine(date.min, block_end)
-    while cursor + timedelta(minutes=SLOT_MINUTES) <= end:
-        starts.append(cursor.time())
-        cursor += timedelta(minutes=SLOT_MINUTES)
-    return starts
-
-
-def day_blocks() -> list[list[time]]:
-    """Slot start times for one clinic day, split into the morning and afternoon blocks."""
-    return [_block_starts(OPEN_TIME, LUNCH_START), _block_starts(LUNCH_END, CLOSE_TIME)]
 
 
 def generate_appointments(

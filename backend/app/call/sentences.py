@@ -14,7 +14,9 @@ ABBREVIATIONS = frozenset(
     {"dr", "mr", "mrs", "ms", "st", "jr", "sr", "vs", "etc", "e.g", "i.e", "a.m", "p.m"}
 )
 
-_END = re.compile(r"[.?!][\"')\]]*(?=\s)")
+# A sentence end is followed by whitespace, or directly by a capital letter: some models stream
+# "Does that work?Great." with no space in between.
+_END = re.compile(r"[.?!][.?!]*[\"')\]]*(?=\s|[A-Z])")
 _COMMA = re.compile(r",(?=\s)")
 
 
@@ -71,3 +73,27 @@ def split_sentences(text: str) -> list[str]:
     sentences = splitter.feed(text)
     last = splitter.flush()
     return [*sentences, last] if last else sentences
+
+
+def is_question(sentence: str) -> bool:
+    # "Any allergies?..." is still a question.
+    return sentence.rstrip("\"')] .").endswith("?")
+
+
+class MetaTextFilter:
+    """Drops [bracketed] text from a stream. Some models write "[Calling end_call]" as speech
+    instead of calling the tool; it must never be spoken."""
+
+    def __init__(self) -> None:
+        self._depth = 0
+
+    def feed(self, text: str) -> str:
+        kept: list[str] = []
+        for ch in text:
+            if ch == "[":
+                self._depth += 1
+            elif ch == "]" and self._depth:
+                self._depth -= 1
+            elif not self._depth:
+                kept.append(ch)
+        return "".join(kept)

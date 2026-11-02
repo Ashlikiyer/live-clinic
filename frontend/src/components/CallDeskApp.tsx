@@ -9,6 +9,7 @@ import { SummaryCard } from "@/components/summary/SummaryCard";
 import { callStats } from "@/lib/stats";
 import { clinicDate } from "@/lib/time";
 import { playDemo } from "@/mock/playDemo";
+import { setCalendarSource } from "@/realtime/calendarSource";
 import { LiveCall } from "@/realtime/liveCall";
 import { useCallStore } from "@/store/callStore";
 import { latestConfirmed } from "@/store/reducer";
@@ -51,6 +52,7 @@ export function CallDeskApp() {
 
   const startDemo = useCallback(() => {
     stopAll();
+    setCalendarSource(null);
     const now = Date.now();
     useCallStore.getState().startCall(now, "demo");
     stopDemo.current = playDemo(clinicDate(new Date(now)));
@@ -73,6 +75,7 @@ export function CallDeskApp() {
   const controls: CallControls = {
     onEnd: () => (kind === "live" ? void live.current?.end() : endDemo()),
     onSendText: kind === "live" ? (text) => live.current?.sendText(text) : null,
+    onTyping: () => live.current?.callerActive(),
     onToggleMute: () => {
       const muted = !useCallStore.getState().muted;
       if (kind === "live") void live.current?.setMuted(muted);

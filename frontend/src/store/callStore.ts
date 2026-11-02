@@ -1,11 +1,15 @@
 import { create } from "zustand";
 
+import { DOCTORS, type Doctor } from "@/lib/clinic";
 import type { ServerEvent } from "@/realtime/events";
 import type { SocketStatus } from "@/realtime/socket";
 
 import {
+  addLocalLine,
   applyServerEvent,
   beginTurn,
+  mergeCalendarDay,
+  type CalendarDay,
   initialCallData,
   markInterrupted,
   type BusySlot,
@@ -30,6 +34,7 @@ interface CallUi {
   connection: SocketStatus | "idle";
   /** A message for the caller, e.g. "Busy right now, try again in a minute." */
   notice: string | null;
+  doctors: Doctor[];
 }
 
 interface CallActions {
@@ -38,6 +43,9 @@ interface CallActions {
   interrupt: (turnId: number, playedText: string) => void;
   beginTurn: (turnId: number) => void;
   setBusyDay: (date: string, slots: BusySlot[]) => void;
+  loadCalendarDay: (day: CalendarDay) => void;
+  setDoctors: (doctors: Doctor[]) => void;
+  addLocalLine: (text: string) => void;
   selectDate: (date: string) => void;
   markSeen: (panel: "calendar" | "form") => void;
   setAgentSpeaking: (speaking: boolean) => void;
@@ -65,6 +73,7 @@ const initialUi: CallUi = {
   voiceMode: "kokoro",
   connection: "idle",
   notice: null,
+  doctors: DOCTORS,
 };
 
 export const useCallStore = create<CallStore>()((set) => ({
@@ -89,6 +98,12 @@ export const useCallStore = create<CallStore>()((set) => ({
   beginTurn: (turnId) => set((state) => beginTurn(state, turnId)),
 
   setBusyDay: (date, slots) => set((state) => ({ busy: { ...state.busy, [date]: slots } })),
+
+  loadCalendarDay: (day) => set((state) => mergeCalendarDay(state, day)),
+
+  setDoctors: (doctors) => set({ doctors }),
+
+  addLocalLine: (text) => set((state) => addLocalLine(state, text, Date.now())),
 
   selectDate: (date) => set({ calendarDate: date }),
 

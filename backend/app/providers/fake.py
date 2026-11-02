@@ -1,10 +1,13 @@
 """Deterministic providers for tests and offline development (PROVIDER=fake)."""
 
 import asyncio
-from collections.abc import AsyncIterator
+import json
+from collections.abc import AsyncIterator, Callable
+from dataclasses import dataclass, field
+from typing import Any
 
 from app.core.errors import ErrorCode
-from app.providers.base import ChatMessage, ProviderError
+from app.providers.base import ChatMessage, LLMChunk, ProviderError, ToolCallRequest
 
 FAKE_AUDIO_PREFIX = b"FAKE:"
 
@@ -26,27 +29,48 @@ class FakeSTT:
         return "Hello?"
 
 
+# Tool arguments, or a function that builds them from the messages so far (e.g. to reuse a
+# slot_start or hold_id returned by an earlier tool).
+ToolArgs = dict[str, Any] | Callable[[list[ChatMessage]], dict[str, Any]]
+
+
+@dataclass
+class ToolStep:
+    """A scripted LLM round that calls tools (optionally after some text)."""
+
+    calls: list[tuple[str, ToolArgs]]
+    text: str = ""
+
+
+@dataclass
 class FakeLLM:
-    """Replies with a fixed script, or echoes the caller, streamed word by word."""
+    """Replies with a fixed script, or echoes the caller, streamed word by word.
 
-    def __init__(
-        self,
-        replies: list[str] | None = None,
-        delay_s: float = 0.0,
-        fail: bool = False,
-    ) -> None:
-        self.replies = list(replies or [])
-        self.delay_s = delay_s
-        self.fail = fail
-        self.calls: list[list[ChatMessage]] = []
+    Each `stream()` call consumes one step: a string is spoken text; a ToolStep requests tools.
+    `calls` records every message list it was given, so tests can inspect tool results.
+    """
 
-    async def stream(self, messages: list[ChatMessage]) -> AsyncIterator[str]:
+    replies: list[str | ToolStep] = field(default_factory=list)
+    delay_s: float = 0.0
+    fail: bool = False
+    calls: list[list[ChatMessage]] = field(default_factory=list)
+    tools_seen: list[list[dict[str, Any]] | None] = field(default_factory=list)
+
+    async def stream(
+        self, messages: list[ChatMessage], tools: list[dict[str, Any]] | None = None
+    ) -> AsyncIterator[LLMChunk]:
         self.calls.append(list(messages))
+        self.tools_seen.append(tools)
         if self.fail:
             raise ProviderError(ErrorCode.LLM_FAILED, "Fake reply failure.")
         last_user = next((m.content for m in reversed(messages) if m.role == "user"), "")
-        reply = self.replies.pop(0) if self.replies else f"You said {last_user}. Anything else?"
-        for i, word in enumerate(reply.split(" ")):
+        step = self.replies.pop(0) if self.replies else f"You said {last_user}. Anything else?"
+        text = step.text if isinstance(step, ToolStep) else step
+        for i, word in enumerate(text.split(" ") if text else []):
             if self.delay_s:
                 await asyncio.sleep(self.delay_s)
             yield word if i == 0 else f" {word}"
+        if isinstance(step, ToolStep):
+            for n, (name, args) in enumerate(step.calls):
+                resolved = args(messages) if callable(args) else args
+                yield ToolCallRequest(f"fake_{len(self.calls)}_{n}", name, json.dumps(resolved))

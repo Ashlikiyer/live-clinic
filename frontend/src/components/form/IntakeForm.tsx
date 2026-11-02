@@ -23,7 +23,7 @@ export function IntakeForm() {
       </div>
       <dl className="min-h-0 flex-1 space-y-2 overflow-y-auto p-3">
         {FORM_FIELDS.map(({ field, label, required }) => (
-          <Field key={field} label={label} required={required} value={form[field]} />
+          <Field key={field} field={field} label={label} required={required} value={form[field]} />
         ))}
       </dl>
     </section>

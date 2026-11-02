@@ -7,22 +7,16 @@ from pydantic import BaseModel
 from app.core.config import get_settings
 from app.core.errors import AppError, ErrorCode
 from app.core.security import client_ip, hash_ip, hash_token, new_token
-from app.repositories.calls import CallStore
+from app.routers.deps import SESSION_COOKIE, get_store
 
 router = APIRouter()
 
 SESSION_TTL = timedelta(hours=24)
-SESSION_COOKIE = "session_token"
 
 
 class SessionCreated(BaseModel):
     session_token: str
     expires_at: datetime
-
-
-def get_store(request: Request) -> CallStore:
-    store: CallStore = request.app.state.store
-    return store
 
 
 @router.post("/api/sessions", status_code=201)

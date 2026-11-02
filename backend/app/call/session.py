@@ -6,14 +6,15 @@ import logging
 import time
 import uuid
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
 from fastapi import WebSocket, WebSocketDisconnect, status
 
-from app.agent.prompt import GREETING, RECONNECT_LINE, TIME_LIMIT_LINE
+from app.agent.context import CallToolState
+from app.agent.prompt import GREETING, LLM_RECOVERY_LINE, RECONNECT_LINE, TIME_LIMIT_LINE
 from app.call.interrupt import History
 from app.call.metrics import TurnTiming, call_stats
 from app.call.sentences import split_sentences
@@ -21,7 +22,9 @@ from app.call.turn import run_turn
 from app.core.config import Settings
 from app.core.errors import ErrorCode
 from app.providers.base import Providers
+from app.repositories.booking import BookingRepository
 from app.repositories.calls import CallStore, SessionInfo
+from app.repositories.clinic import ClinicInfoRepository
 from app.schemas.events import (
     AudioFrameError,
     CallEnd,
@@ -46,6 +49,14 @@ class TurnRecord:
     db_turn_id: uuid.UUID | None = None
     metrics_sent: bool = False
     metrics_payload: dict[str, Any] | None = None
+    # Audit rows for tool_calls, saved once the assistant turn row exists.
+    tool_calls: list[dict[str, Any]] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class ToolDeps:
+    booking: BookingRepository
+    clinic: ClinicInfoRepository
 
 
 class CallSession:
@@ -56,8 +67,11 @@ class CallSession:
         store: CallStore,
         providers: Providers,
         settings: Settings,
+        tools: ToolDeps | None = None,
     ) -> None:
         self.ws = websocket
+        self.tools = tools
+        self.tool_state = CallToolState()
         self.session = session
         self.store = store
         self.providers = providers
@@ -163,7 +177,12 @@ class CallSession:
         elif isinstance(event, TtsFirstAudio):
             self._on_first_audio(event)
         elif isinstance(event, CallEnd):
-            await self.end(self._default_outcome(), "The caller ended the call.")
+            if event.reason == "silence":
+                await self.end(
+                    self._default_outcome(), "The caller went silent; Mia ended the call."
+                )
+            else:
+                await self.end(self._default_outcome(), "The caller ended the call.")
 
     async def _on_audio(self, frame: bytes) -> None:
         if self.call_id is None:
@@ -243,8 +262,8 @@ class CallSession:
         await self.end(self._default_outcome(), "The call reached the 5-minute demo limit.")
 
     def _default_outcome(self) -> str:
-        if self.outcome:
-            return self.outcome
+        if self.outcome or self.tool_state.outcome:
+            return self.outcome or self.tool_state.outcome or "info_only"
         has_user_turn = any(e.role == "user" for e in self.history.entries)
         return "info_only" if has_user_turn else "abandoned"
 
@@ -257,6 +276,9 @@ class CallSession:
             if r.metrics_payload is not None
         ]
         stats = call_stats(totals, time.monotonic() - self.started_monotonic)
+        if self.tool_state.callback_notes:
+            notes = "; ".join(self.tool_state.callback_notes)
+            summary = f"{summary} Staff callback requested about: {notes}."
         call_id, count = self.call_id, len(totals)
         self.db(lambda: self.store.end_call(call_id, outcome, summary, count))
         await self.send("call.ended", outcome=outcome, summary=summary, stats=stats)
@@ -291,12 +313,25 @@ class CallSession:
         timing.clock_offset_ms = self.clock_offset_ms
         self.turns[turn_id] = TurnRecord(timing)
         self._current_turn_id = turn_id
-        self._current = asyncio.create_task(run_turn(self, turn_id, text=text, wav=wav))
+        self._current = asyncio.create_task(self._guarded_turn(turn_id, text=text, wav=wav))
+
+    async def _guarded_turn(self, turn_id: int, *, text: str | None, wav: bytes | None) -> None:
+        """A bug in a turn must never leave the caller waiting in silence."""
+        try:
+            await run_turn(self, turn_id, text=text, wav=wav)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            log.exception("Turn %s failed", turn_id)
+            await self.send_error(ErrorCode.LLM_FAILED, "Something went wrong.", retryable=True)
+            await self.speak(LLM_RECOVERY_LINE, turn_id)
 
     async def speak(self, text: str, turn_id: int | None = None) -> int:
         """Say a fixed line (greeting, recovery, goodbye) without calling the LLM."""
         turn_id = self.next_turn_id() if turn_id is None else turn_id
-        await self.send("agent.text.delta", turn_id=turn_id, delta=text)
+        earlier = self.history.assistant_for(turn_id)
+        lead = " " if earlier is not None and earlier.text else ""  # keep apart from earlier text
+        await self.send("agent.text.delta", turn_id=turn_id, delta=lead + text)
         for index, sentence in enumerate(split_sentences(text)):
             await self.send("agent.sentence", turn_id=turn_id, index=index, text=sentence)
         await self.send("agent.text.done", turn_id=turn_id)
@@ -341,6 +376,14 @@ class CallSession:
         record.metrics_payload = payload
         await self.send("metrics.turn", **payload)
         self.persist_metrics(turn_id)
+
+    def save_tool_calls(self, record: TurnRecord) -> None:
+        """Audit this turn's tool calls, after its assistant turn row is queued."""
+        if self.tools is None or record.db_turn_id is None or not record.tool_calls:
+            return
+        booking, turn_uuid, calls = self.tools.booking, record.db_turn_id, list(record.tool_calls)
+        record.tool_calls.clear()
+        self.db(lambda: booking.save_tool_calls(turn_uuid, calls))
 
     def persist_metrics(self, turn_id: int) -> None:
         """Save metrics once both the payload and the assistant turn row exist."""

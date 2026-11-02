@@ -121,7 +121,7 @@ export type ClientEvent =
   | Event<"text.message", { text: string }>
   | Event<"user.interrupt", { turn_id: number; played_text: string; played_ms: number }>
   | Event<"tts.first_audio", { turn_id: number; tts_ms?: number }>
-  | Event<"call.end", { reason: "user" }>
+  | Event<"call.end", { reason: "user" | "silence" }>
   | Event<"ping">;
 
 /** JSON header of a binary audio frame: 4-byte header length + this JSON + WAV bytes. */

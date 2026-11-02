@@ -14,6 +14,8 @@ class Settings(BaseSettings):
     llm_model: str = ""
     # Groq "reasoning_effort" for reasoning models (e.g. "none" for Qwen 3); empty = not sent.
     llm_reasoning_effort: str = ""
+    # Tried in order when LLM_MODEL is rate limited: "model:reasoning_effort,model:...".
+    llm_fallback_models: str = ""
     stt_model: str = "whisper-large-v3-turbo"
     frontend_origin: str = "http://localhost:3000"
     session_secret: str = "dev-only-session-secret-change-me"

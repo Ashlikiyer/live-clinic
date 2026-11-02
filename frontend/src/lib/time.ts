@@ -99,3 +99,18 @@ export function atMinutes(date: string, minutes: number): string {
 export function addMinutes(iso: string, minutes: number): string {
   return atMinutes(dateOf(iso), minutesOf(iso) + minutes);
 }
+
+const birthdayFormatter = new Intl.DateTimeFormat("en-US", {
+  timeZone: "UTC",
+  month: "long",
+  day: "numeric",
+  year: "numeric",
+});
+
+/** "1990-03-03" -> "March 3, 1990"; anything else is shown as given. */
+export function formatFormValue(field: string, value: string): string {
+  if (field === "date_of_birth" && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return birthdayFormatter.format(new Date(`${value}T12:00:00Z`));
+  }
+  return value;
+}

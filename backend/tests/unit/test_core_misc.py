@@ -25,7 +25,11 @@ def test_prompt_states_date_and_preview_limits() -> None:
     prompt = build_system_prompt(now)
     assert "Today is Tuesday, November 3, 2026, 2:05 PM" in prompt
     assert "not connected yet" in prompt
-    assert "not connected yet" not in build_system_prompt(now, tools_enabled=True)
+    with_tools = build_system_prompt(now, tools_enabled=True)
+    assert "not connected yet" not in with_tools
+    # The model gets real dates instead of doing date arithmetic itself.
+    assert "Tue 2026-11-03 (today), Wed 2026-11-04" in with_tools
+    assert "Tue 2026-11-17" in with_tools
 
 
 # ---------- metrics ----------
@@ -123,5 +127,5 @@ def test_parse_sse_delta() -> None:
 async def test_fake_providers() -> None:
     assert await FakeSTT().transcribe(fake_wav("book me in")) == "book me in"
     llm = FakeLLM(replies=["Sure thing. Which day?"])
-    chunks = [c async for c in llm.stream([])]
+    chunks = [c async for c in llm.stream([]) if isinstance(c, str)]
     assert "".join(chunks) == "Sure thing. Which day?"

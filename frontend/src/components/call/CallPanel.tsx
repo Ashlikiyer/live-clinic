@@ -15,6 +15,8 @@ export interface CallControls {
   onToggleMute: () => void;
   /** Null when typing isn't available (the scripted demo). */
   onSendText: ((text: string) => void) | null;
+  /** The caller is typing: it counts as activity for the silence check. */
+  onTyping?: () => void;
 }
 
 const STATUS_LABEL = {
@@ -71,6 +73,9 @@ export function CallPanel({ controls }: { controls: CallControls }) {
   const connection = useCallStore((s) => s.connection);
   const notice = useCallStore((s) => s.notice);
   const activeTools = useCallStore((s) => s.activeTools);
+  const transferring = useCallStore(
+    (s) => s.status === "transferring" || s.ended?.outcome === "transferred",
+  );
   const timer = useCallTimer();
   const active = status === "live" || status === "connecting" || status === "transferring";
 
@@ -111,6 +116,7 @@ export function CallPanel({ controls }: { controls: CallControls }) {
       </div>
 
       {notice && <Banner tone="warn">{notice}</Banner>}
+      {transferring && <Banner tone="info">Transferring to front desk staff...</Banner>}
       {connection === "reconnecting" && (
         <Banner tone="warn">Connection dropped. Reconnecting...</Banner>
       )}
@@ -133,7 +139,11 @@ export function CallPanel({ controls }: { controls: CallControls }) {
       <Transcript />
 
       <div className="space-y-3 border-t border-line p-3">
-        <TypeInput disabled={!active || controls.onSendText === null} onSend={controls.onSendText} />
+        <TypeInput
+          disabled={!active || controls.onSendText === null}
+          onSend={controls.onSendText}
+          onTyping={controls.onTyping}
+        />
         <div className="flex gap-2">
           <button
             type="button"

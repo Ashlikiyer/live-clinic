@@ -43,6 +43,12 @@ export const OPENERS = [
   "Hi there!",
 ];
 
+/** Played while a tool runs, if nothing else has been said for 700 ms. */
+export const FILLER_LINE = "Let me check that.";
+/** After 8 s of silence, then after another 8 s (the call then ends). */
+export const NUDGE_LINE = "Are you still there?";
+export const SILENCE_GOODBYE_LINE = "I'll let you go for now. Thanks for calling. Goodbye!";
+
 /** Lookup key for cached clips: "Sure!" and "sure." sound alike, so they share one clip. */
 export function phraseKey(text: string): string {
   return text.trim().toLowerCase().replace(/[.!?,]+$/, "");
@@ -58,6 +64,9 @@ export function precachePieces(): string[] {
     ...first(GREETING_SENTENCES[0]),
     ...GREETING_SENTENCES.slice(1),
     ...OPENERS,
+    FILLER_LINE,
+    NUDGE_LINE,
+    SILENCE_GOODBYE_LINE,
     ...first(RECOVERY_SENTENCES[0]),
     RECOVERY_SENTENCES[1],
     ...first(RECOVERY_SENTENCES[2]),

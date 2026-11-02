@@ -3,7 +3,7 @@
 import { useEffect } from "react";
 
 import { formatLongDate } from "@/lib/time";
-import { demoKeepFree, mockBusySlots } from "@/mock/busy";
+import { loadDay } from "@/realtime/calendarSource";
 import { useCallStore } from "@/store/callStore";
 
 import { DayStrip } from "./DayStrip";
@@ -21,12 +21,11 @@ export function Calendar() {
   const date = useCallStore((s) => s.calendarDate);
   const today = useCallStore((s) => s.today);
   const hasDay = useCallStore((s) => (date ? date in s.busy : false));
-  const setBusyDay = useCallStore((s) => s.setBusyDay);
 
-  // Phase 0: mock seeded schedule. Phase 1 loads GET /api/calendar?date=...
+  // The live call's real calendar (GET /api/calendar), or the mock schedule in the demo.
   useEffect(() => {
-    if (date && !hasDay) setBusyDay(date, mockBusySlots(date, demoKeepFree));
-  }, [date, hasDay, setBusyDay]);
+    if (date && !hasDay) loadDay(date);
+  }, [date, hasDay]);
 
   return (
     <section

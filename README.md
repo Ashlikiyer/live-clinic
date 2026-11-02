@@ -17,11 +17,46 @@ rules for AI coding assistants are in [CLAUDE.md](CLAUDE.md).
   16 kHz WAV over the WebSocket. Groq Whisper transcribes it, then the emergency keyword
   check runs before the LLM. The Groq LLM streams the reply, which is split into sentences
   and spoken by Kokoro in the browser. Barge-in, per-turn latency metrics, a typed-message
-  fallback, and one automatic reconnect are all working. The calendar and intake form tools
-  come in Phase 2. Until then Mia offers a staff callback for bookings, and the calendar
-  shows mock data.
+  fallback, and one automatic reconnect are all working.
+- **Phase 2 (booking tools and live calendar):** done. Mia books, reschedules and cancels on
+  the caller's own sandbox calendar, fills the intake form (with "corrected" tags), answers
+  clinic questions from the knowledge file, transfers to staff, and ends the call. The rules
+  that matter are enforced in code, not only in the prompt:
+  - A booking change is refused unless it was read back in an earlier turn and the caller's
+    latest reply is a clear yes (rule list first, then a one-word LLM check).
+  - Booking needs name, date of birth, phone and reason on the form.
+  - Holds expire after 5 minutes, and every change locks the session row, so two fast tool
+    calls can't double-book.
+  - At most 3 tools per round and 4 LLM rounds per caller turn.
+  - A reply stops at its first question, so the model can't answer for the caller.
+  - `end_call` is refused until the caller signals they're done (transfers and emergencies
+    excepted).
 
-Next is **Phase 2**: availability, booking and the agent tools.
+  The calendar and doctors load from `GET /api/calendar` and `GET /api/clinic`. A cached
+  "Let me check that." plays if a tool runs for 700 ms with nothing said yet. After 8 s of
+  silence Mia asks "Are you still there?", and after another 8 s she ends the call.
+
+Next is **Phase 3**: Latency X-ray polish and the summary card from stored call data, then
+Phase 4's scenario runner.
+
+## Groq free tier: what it allows
+
+Every chat model on the free tier is limited to **8,000 tokens per minute, per model**. An
+LLM call with Mia's prompt, the 10 tool schemas and a few turns of history is about
+2,000–2,800 tokens. To fit a real call into that:
+
+- **Smaller requests.** The prompt and tool schemas are trimmed, tool results use compact
+  JSON, and history keeps 8 turns (tool details for the last 3 only).
+- **No wasted rounds.** Once Mia has asked her question, no second LLM round is made after
+  the tools.
+- **Model fallback.** When the main model (`LLM_MODEL`) is rate limited, the same request
+  goes to `LLM_FALLBACK_MODELS` (the `gpt-oss` models, each with its own budget). If all of
+  them free up within 4 s, Mia waits instead of failing.
+
+Measured: one call at a natural pace (a turn about every 10 s) fits, including a full
+booking, reschedule and cancel. Quick back-to-back turns, or several calls at once, can
+still hit the limit. Mia then says "Sorry, could you repeat that?" and recovers on the next
+turn. Removing the limit would need Groq's paid tier.
 
 ## Measured latency (Phase 1)
 
@@ -56,6 +91,8 @@ that the browser serves it from cache.
 
 ### Notes on the spec
 
+- **Extra client values:** `call.end` may carry `reason: "silence"` (the 8-second rule), so
+  the call record says why it ended.
 - **LLM:** `llama-3.3-70b-versatile` isn't available to this Groq key. `qwen/qwen3.8-27b`
   with `LLM_REASONING_EFFORT=none` replied fastest (about 370 ms vs about 700 ms for the
   `gpt-oss` models) and followed Mia's rules best.

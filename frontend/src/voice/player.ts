@@ -63,6 +63,8 @@ export class SentencePlayer {
   private halted = false;
   /** The server has sent every sentence for this turn (agent.text.done). */
   private textDone = false;
+  /** A line outside any turn's sentences: the tool filler or a silence nudge. */
+  private aside: Playback | null = null;
 
   constructor(
     private voice: Voice,
@@ -102,6 +104,28 @@ export class SentencePlayer {
     void this.pump();
   }
 
+  /**
+   * Say a short line that isn't part of a reply (e.g. "Let me check that." while a tool runs).
+   * Skipped if anything is already playing; the reply's own sentences wait until it ends.
+   * Resolves true if the line played to the end.
+   */
+  async sayAside(text: string): Promise<boolean> {
+    if (this.current || this.aside) return false;
+    const clip = await this.voice.prepare(text).catch(() => null);
+    if (!clip || this.current || this.aside) return false;
+    const playback = clip.play();
+    this.aside = playback;
+    this.setSpeaking(true);
+    await playback.ended;
+    if (this.aside !== playback) return false; // stopped by a barge-in
+    this.aside = null;
+    if (this.isNextReady()) void this.pump();
+    else if (this.current === null && this.queue.length === 0 && !this.pumping) {
+      this.setSpeaking(false);
+    }
+    return true;
+  }
+
   /** All sentences for `turnId` have arrived; speaking ends once they finish playing. */
   markDone(turnId: number): void {
     if (turnId !== this.turnId) return;
@@ -109,8 +133,15 @@ export class SentencePlayer {
     this.finishIfDrained();
   }
 
-  /** Stop immediately. Returns what was heard of the current turn, if anything played. */
+  /** Stop immediately (barge-in). Returns what was heard of the current turn, if anything. */
   stop(): StopResult | null {
+    this.aside?.stop();
+    this.aside = null;
+    return this.stopTurn();
+  }
+
+  /** Stop the current turn's sentences; a filler line in progress is left to finish. */
+  private stopTurn(): StopResult | null {
     const result =
       this.firstAudioSent
         ? {
@@ -128,13 +159,13 @@ export class SentencePlayer {
     this.queue = [];
     this.halted = true;
     this.voice.cancelPending?.();
-    this.setSpeaking(false);
+    if (!this.aside) this.setSpeaking(false);
     return result;
   }
 
   /** Forget everything, e.g. when a new caller turn starts. */
   resetFor(turnId: number): void {
-    this.stop();
+    this.stopTurn();
     this.turnId = turnId;
     this.next = { index: 0, part: 0 };
     this.finished = [];
@@ -174,6 +205,9 @@ export class SentencePlayer {
         if (turnId !== this.turnId || this.halted) break;
         this.next = item.last ? { index: item.index + 1, part: 0 } : { index: item.index, part: item.part + 1 };
         if (!clip) continue; // synthesis failed: skip the sentence rather than stall
+        // Let a filler line finish rather than talk over it.
+        while (this.aside) await this.aside.ended;
+        if (turnId !== this.turnId || this.halted) break;
 
         const playback = clip.play();
         this.current = { text: item.text, playback };

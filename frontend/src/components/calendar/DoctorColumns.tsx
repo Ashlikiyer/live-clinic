@@ -4,7 +4,6 @@ import { useMemo } from "react";
 
 import {
   CLOSE_MINUTES,
-  DOCTORS,
   LUNCH_END_MINUTES,
   LUNCH_START_MINUTES,
   OPEN_MINUTES,
@@ -24,6 +23,7 @@ export function DoctorColumns({ date }: { date: string }) {
   const busy = useCallStore((s) => s.busy[date]);
   const appointments = useCallStore((s) => s.appointments);
   const offered = useCallStore((s) => s.offered);
+  const doctors = useCallStore((s) => s.doctors);
   const dayAppointments = useMemo(
     () => Object.values(appointments).filter((a) => dateOf(a.start) === date),
     [appointments, date],
@@ -35,7 +35,7 @@ export function DoctorColumns({ date }: { date: string }) {
     <div className="min-h-0 flex-1 overflow-auto">
       <div className="sticky top-0 z-20 grid grid-cols-[3.5rem_repeat(3,minmax(5.5rem,1fr))] gap-1 border-b border-line bg-surface px-2 py-2">
         <span />
-        {DOCTORS.map((d) => (
+        {doctors.map((d) => (
           <div key={d.id} className="min-w-0 text-center">
             <p className="truncate text-xs font-semibold" style={{ color: d.color }}>
               {d.name}
@@ -72,7 +72,7 @@ export function DoctorColumns({ date }: { date: string }) {
             Lunch break
           </div>
 
-          {DOCTORS.map((doctor, col) =>
+          {doctors.map((doctor, col) =>
             ROW_STARTS.filter((m) => !isLunch(m) && m < CLOSE_MINUTES).map((m) => {
               const start = atMinutes(date, m);
               return (
@@ -88,7 +88,7 @@ export function DoctorColumns({ date }: { date: string }) {
           )}
 
           {(busy ?? []).map((slot) => {
-            const col = DOCTORS.findIndex((d) => d.id === slot.doctorId);
+            const col = doctors.findIndex((d) => d.id === slot.doctorId);
             if (col === -1) return null;
             return (
               <Slot
@@ -100,7 +100,7 @@ export function DoctorColumns({ date }: { date: string }) {
           })}
 
           {dayAppointments.map((a) => {
-            const col = DOCTORS.findIndex((d) => d.id === a.doctorId);
+            const col = doctors.findIndex((d) => d.id === a.doctorId);
             if (col === -1) return null;
             return (
               <Slot

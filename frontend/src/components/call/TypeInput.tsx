@@ -8,9 +8,11 @@ export const MAX_TYPED_CHARS = 300;
 export function TypeInput({
   disabled,
   onSend,
+  onTyping,
 }: {
   disabled: boolean;
   onSend: ((text: string) => void) | null;
+  onTyping?: () => void;
 }) {
   const [text, setText] = useState("");
   const canSend = !disabled && onSend !== null && text.trim().length > 0;
@@ -31,7 +33,10 @@ export function TypeInput({
       <input
         id="type-instead"
         value={text}
-        onChange={(e) => setText(e.target.value.slice(0, MAX_TYPED_CHARS))}
+        onChange={(e) => {
+          setText(e.target.value.slice(0, MAX_TYPED_CHARS));
+          onTyping?.();
+        }}
         disabled={disabled}
         maxLength={MAX_TYPED_CHARS}
         autoComplete="off"

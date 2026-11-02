@@ -14,6 +14,8 @@ OPEN_WEEKDAYS = frozenset(range(6))
 BOOKING_WINDOW_DAYS = 14
 MIN_LEAD_MINUTES = 60
 HOLD_MINUTES = 5
+# Children are seen only by the pediatrician, and the pediatrician sees only children.
+PEDIATRICS_DOCTOR_ID = "dr-cruz"
 
 
 class VisitType(StrEnum):

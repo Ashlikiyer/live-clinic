@@ -7,8 +7,12 @@ import { phraseKey, precachePieces } from "./phrases";
 import type { Clip, Playback, Voice } from "./player";
 import { KEEP_GENERATION, type KokoroBackend, type WorkerIn, type WorkerOut } from "./ttsProtocol";
 
-/** Synthesis slower than real time can't keep up with speech; use the lite voice instead. */
-export const MAX_KOKORO_RTF = 1;
+/**
+ * Up-front speed check: well past real time (e.g. CPU-only WASM, ~2.7x) can't keep up, so use
+ * the lite voice. Borderline devices keep Kokoro: openers are cached, and the runtime rule
+ * (two slow first-audio starts in a row) still switches to lite mid-call if needed.
+ */
+export const MAX_KOKORO_RTF = 1.5;
 
 let audioContext: AudioContext | null = null;
 
@@ -139,6 +143,7 @@ export function loadKokoro(): Promise<Voice> {
         const voice = new KokoroVoice(worker);
         voice.precache(precachePieces());
         emit({ state: "ready", device: msg.device, rtf: msg.rtf, tooSlow: msg.rtf > MAX_KOKORO_RTF });
+        console.info(`[voice] Kokoro on ${msg.device}, ${msg.rtf.toFixed(2)}x real time`);
         resolve(voice);
       } else if (msg.type === "error") {
         emit({ state: "failed", message: msg.message });

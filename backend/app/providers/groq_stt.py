@@ -10,7 +10,11 @@ GROQ_BASE_URL = "https://api.groq.com/openai/v1"
 
 def error_for(response: httpx.Response, default: ErrorCode, what: str) -> ProviderError:
     if response.status_code == 429:
-        return ProviderError(ErrorCode.RATE_LIMITED, "Busy right now, try again in a minute.")
+        return ProviderError(
+            ErrorCode.RATE_LIMITED,
+            "Busy right now, try again in a minute.",
+            details={"retry_after": response.headers.get("retry-after", "")},
+        )
     retryable = response.status_code >= 500
     return ProviderError(default, f"{what} failed ({response.status_code}).", retryable=retryable)
 

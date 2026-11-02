@@ -54,7 +54,8 @@ class TtsFirstAudio(_ClientEvent):
 
 class CallEnd(_ClientEvent):
     type: Literal["call.end"]
-    reason: Literal["user"] = "user"
+    # "silence": the caller didn't answer "Are you still there?" (an addition to the spec).
+    reason: Literal["user", "silence"] = "user"
 
 
 class Ping(_ClientEvent):

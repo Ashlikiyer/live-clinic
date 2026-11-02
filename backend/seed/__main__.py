@@ -11,10 +11,11 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import delete, insert, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.clinic import PEDIATRICS_DOCTOR_ID
 from app.core.config import get_settings
 from app.db.models import ClinicInfo, Doctor, SeedAppointment, SeedPatient
 from app.db.session import get_engine, get_sessionmaker
-from seed.data import CLINIC_INFO, DOCTORS, PEDIATRICS_DOCTOR_ID, SEED_PATIENTS
+from seed.data import CLINIC_INFO, DOCTORS, SEED_PATIENTS
 from seed.generate import generate_appointments
 
 DAYS_BEFORE_TODAY = 7

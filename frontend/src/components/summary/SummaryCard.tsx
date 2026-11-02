@@ -2,8 +2,15 @@
 
 import { motion } from "motion/react";
 
-import { FORM_FIELDS, doctorById } from "@/lib/clinic";
-import { formatDuration, formatLongDate, formatMs, formatTime, dateOf } from "@/lib/time";
+import { FORM_FIELDS } from "@/lib/clinic";
+import {
+  dateOf,
+  formatDuration,
+  formatFormValue,
+  formatLongDate,
+  formatMs,
+  formatTime,
+} from "@/lib/time";
 import { transcriptText } from "@/lib/transcript";
 import type { CallOutcome } from "@/realtime/events";
 import { useCallStore } from "@/store/callStore";
@@ -33,10 +40,11 @@ export function SummaryCard({ onCallAgain, onClose }: { onCallAgain: () => void;
   const form = useCallStore((s) => s.form);
   const transcript = useCallStore((s) => s.transcript);
   const appointment = useCallStore((s) => latestConfirmed(s.appointments));
+  const doctors = useCallStore((s) => s.doctors);
   if (!ended) return null;
 
   const { stats } = ended;
-  const doctor = appointment ? doctorById(appointment.doctorId) : undefined;
+  const doctor = appointment ? doctors.find((d) => d.id === appointment.doctorId) : undefined;
   const filled = FORM_FIELDS.filter(({ field }) => form[field]);
   const statItems = [
     { label: "Call length", value: formatDuration(stats.duration_s) },
@@ -84,7 +92,7 @@ export function SummaryCard({ onCallAgain, onClose }: { onCallAgain: () => void;
               {filled.map(({ field, label }) => (
                 <div key={field} className="contents">
                   <dt className="text-ink-muted">{label}</dt>
-                  <dd>{form[field]?.value}</dd>
+                  <dd>{formatFormValue(field, form[field]?.value ?? "")}</dd>
                 </div>
               ))}
             </dl>

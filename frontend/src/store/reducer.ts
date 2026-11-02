@@ -365,6 +365,31 @@ export function markInterrupted(state: CallData, turnId: number, playedText: str
   };
 }
 
+/** One day of the calendar as GET /api/calendar returns it. */
+export interface CalendarDay {
+  date: string;
+  busy: BusySlot[];
+  appointments: SandboxSlot[];
+}
+
+/**
+ * Merge a loaded day into the state. Live events win: an appointment the store already has
+ * (from a newer tool event) is kept as it is.
+ */
+export function mergeCalendarDay(state: CallData, day: CalendarDay): CallData {
+  const appointments = { ...state.appointments };
+  for (const a of day.appointments) appointments[a.id] ??= a;
+  return { ...state, busy: { ...state.busy, [day.date]: day.busy }, appointments };
+}
+
+/** A line Mia says locally (silence nudges), shown in the transcript only. */
+export function addLocalLine(state: CallData, text: string, at: number): CallData {
+  return {
+    ...state,
+    transcript: [...state.transcript, { id: `local-${at}`, role: "agent", text, turnId: null }],
+  };
+}
+
 /** The caller started a new turn: agent text for older turns is now stale. */
 export function beginTurn(state: CallData, turnId: number): CallData {
   return { ...state, currentTurnId: Math.max(state.currentTurnId, turnId) };

@@ -7,7 +7,7 @@ from app.core.config import get_settings
 from app.core.errors import ErrorCode
 from app.core.security import hash_token
 from app.repositories.calls import CallStore
-from app.routers.sessions import SESSION_COOKIE
+from app.routers.deps import SESSION_COOKIE
 from app.schemas.events import server_event
 
 router = APIRouter()
@@ -44,4 +44,11 @@ async def call_socket(websocket: WebSocket) -> None:
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
 
-    await CallSession(websocket, session, store, websocket.app.state.providers, settings).run()
+    await CallSession(
+        websocket,
+        session,
+        store,
+        websocket.app.state.providers,
+        settings,
+        tools=websocket.app.state.tools,
+    ).run()

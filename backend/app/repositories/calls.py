@@ -30,6 +30,17 @@ class TurnRow:
     interrupted: bool
 
 
+@dataclass(frozen=True)
+class CallInfo:
+    id: uuid.UUID
+    started_at: datetime
+    ended_at: datetime | None
+    outcome: str | None
+    summary: str | None
+    # One dict of stage timings plus total_ms per measured reply, in call order.
+    metrics: list[dict[str, Any]]
+
+
 class CallStore(Protocol):
     async def create_session(
         self, session_id: uuid.UUID, token_hash: str, ip_hash: str, expires_at: datetime
@@ -40,6 +51,7 @@ class CallStore(Protocol):
     async def create_call(self, call_id: uuid.UUID, session_id: uuid.UUID, voice: str) -> None: ...
     async def open_call_for_session(self, call_id: uuid.UUID, session_id: uuid.UUID) -> bool: ...
     async def list_turns(self, call_id: uuid.UUID) -> list[TurnRow]: ...
+    async def get_call(self, call_id: uuid.UUID, session_id: uuid.UUID) -> CallInfo | None: ...
     async def add_turn(
         self,
         turn_id: uuid.UUID,
@@ -121,6 +133,35 @@ class SqlCallStore:
                 select(Turn).where(Turn.call_id == call_id).order_by(Turn.index)
             )
             return [TurnRow(t.index, t.role, t.text, t.interrupted) for t in rows]
+
+    async def get_call(self, call_id: uuid.UUID, session_id: uuid.UUID) -> CallInfo | None:
+        async with self._sessionmaker() as db:
+            call = await db.scalar(
+                select(Call).where(Call.id == call_id, Call.session_id == session_id)
+            )
+            if call is None:
+                return None
+            rows = await db.execute(
+                select(TurnMetrics)
+                .join(Turn, Turn.id == TurnMetrics.turn_id)
+                .where(Turn.call_id == call_id)
+                .order_by(Turn.index)
+            )
+            metrics = [
+                {
+                    "vad_wait_ms": m.vad_wait_ms,
+                    "upload_ms": m.upload_ms,
+                    "stt_ms": m.stt_ms,
+                    "llm_ttft_ms": m.llm_ttft_ms,
+                    "first_sentence_ms": m.first_sentence_ms,
+                    "tts_ms": m.tts_ms,
+                    "total_ms": m.total_ms,
+                }
+                for m in rows.scalars()
+            ]
+            return CallInfo(
+                call.id, call.started_at, call.ended_at, call.outcome, call.summary, metrics
+            )
 
     async def add_turn(
         self,
@@ -235,6 +276,18 @@ class MemoryCallStore:
             TurnRow(t["index"], t["role"], t["text"], t["interrupted"])
             for t in sorted(rows, key=lambda t: t["index"])
         ]
+
+    async def get_call(self, call_id: uuid.UUID, session_id: uuid.UUID) -> CallInfo | None:
+        call = self.calls.get(call_id)
+        if call is None or call["session_id"] != session_id:
+            return None
+        turn_ids = sorted(
+            (t["index"], tid) for tid, t in self.turns.items() if t["call_id"] == call_id
+        )
+        metrics = [self.metrics[tid] for _, tid in turn_ids if tid in self.metrics]
+        return CallInfo(
+            call_id, call["started_at"], call["ended_at"], call["outcome"], call["summary"], metrics
+        )
 
     async def add_turn(
         self,

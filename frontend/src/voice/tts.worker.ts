@@ -97,12 +97,16 @@ async function load(): Promise<void> {
       backend = WASM_BACKEND;
       tts = await loadWith(backend);
     }
-    // Warm-up: the first generation compiles kernels/shaders. The second one measures speed.
+    // Warm-up: early generations compile kernels/shaders, so time two runs and keep the faster.
     await tts.generate("Hi.", { voice: KOKORO_VOICE });
-    const started = performance.now();
-    const sample = await tts.generate(BENCH_TEXT, { voice: KOKORO_VOICE });
-    const audioMs = (sample.audio.length / sample.sampling_rate) * 1000;
-    post({ type: "ready", device: backend.device, rtf: (performance.now() - started) / audioMs });
+    let rtf = Infinity;
+    for (let run = 0; run < 2; run++) {
+      const started = performance.now();
+      const sample = await tts.generate(BENCH_TEXT, { voice: KOKORO_VOICE });
+      const audioMs = (sample.audio.length / sample.sampling_rate) * 1000;
+      rtf = Math.min(rtf, (performance.now() - started) / audioMs);
+    }
+    post({ type: "ready", device: backend.device, rtf });
   } catch (error) {
     post({ type: "error", message: String(error) });
   }

@@ -4,9 +4,11 @@ import time
 import uuid
 from datetime import UTC, datetime, timedelta
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.agent.prompt import GREETING, RECONNECT_LINE, STT_RECOVERY_LINE
+from app.core.config import get_settings
 from app.providers.fake import FakeLLM, FakeSTT
 from app.repositories.calls import MemoryCallStore
 from app.routers.call_ws import origin_allowed
@@ -178,7 +180,10 @@ def test_llm_failure_sends_error_and_recovery_line(client: TestClient, llm: Fake
     assert any(e["type"] == "error" and e["code"] == "LLM_FAILED" for e in events)
 
 
-def test_call_limit_per_ip(client: TestClient, store: MemoryCallStore) -> None:
+def test_call_limit_per_ip(
+    client: TestClient, store: MemoryCallStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(get_settings(), "calls_per_ip_per_day", 10)  # independent of local .env
     token = new_token(client)
     session_id = next(iter(store.sessions))
     for _ in range(10):
@@ -223,3 +228,35 @@ def test_cannot_resume_another_sessions_call(client: TestClient) -> None:
         events = start_call(ws, resume_call_id=call_a)
     assert events[0]["call_id"] != call_a
     assert text_of(events, 0) == GREETING
+
+
+def test_a_crashing_turn_still_answers_the_caller(client: TestClient, llm: FakeLLM) -> None:
+    def broken(_: object) -> dict[str, object]:
+        raise RuntimeError("bug")
+
+    from app.providers.fake import ToolStep
+
+    llm.replies = [ToolStep([("get_clinic_info", broken)])]
+    token = new_token(client)
+    with client.websocket_connect(f"/ws/call?token={token}") as ws:
+        start_call(ws)
+        ws.send_json({"type": "text.message", "text": "hello", "ts": 1})
+        events = receive_until(ws, "agent.text.done", turn_id=1)
+    assert any(e["type"] == "error" and e["code"] == "LLM_FAILED" for e in events)
+    assert "Sorry" in text_of(events, 1)
+
+
+def test_a_reply_stops_at_its_first_question(client: TestClient, llm: FakeLLM) -> None:
+    llm.replies = ["Got it. Does 9:30 work for you?Yes, please. [Calling confirm_booking] Done."]
+    token = new_token(client)
+    with client.websocket_connect(f"/ws/call?token={token}") as ws:
+        start_call(ws)
+        ws.send_json({"type": "text.message", "text": "Book me in", "ts": 1})
+        events = receive_until(ws, "agent.text.done", turn_id=1)
+    assert text_of(events, 1) == "Got it. Does 9:30 work for you?"
+    assert [e["text"] for e in events if e["type"] == "agent.sentence"] == [
+        "Got it.",
+        "Does 9:30 work for you?",
+    ]
+    # The LLM's history holds only what was said.
+    assert llm.calls and "Yes, please" not in str(llm.calls[-1])

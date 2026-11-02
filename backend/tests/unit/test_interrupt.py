@@ -1,4 +1,5 @@
-from app.call.interrupt import MAX_HISTORY_TURNS, History, trim_to_played
+from app.call.interrupt import MAX_HISTORY_TURNS, MAX_TOOL_TURNS, History, trim_to_played
+from app.providers.base import ToolCallRequest
 
 
 def test_trim_keeps_only_played_words() -> None:
@@ -49,3 +50,17 @@ def test_history_is_trimmed_to_recent_turns() -> None:
     user_messages = [m.content for m in messages if m.role == "user"]
     assert len(user_messages) == MAX_HISTORY_TURNS
     assert user_messages[-1] == f"user {MAX_HISTORY_TURNS + 5}"
+
+
+def test_old_tool_exchanges_are_dropped_but_their_spoken_text_stays() -> None:
+    history = History()
+    for turn in range(1, MAX_TOOL_TURNS + 3):
+        history.add_user(turn, f"user {turn}")
+        reply = history.add_assistant(turn, f"reply {turn}")
+        call = ToolCallRequest(f"c{turn}", "get_clinic_info", "{}")
+        history.add_tool_exchange(reply, (call,), [(f"c{turn}", "{}")])
+    messages = history.to_messages("S")
+    tool_ids = [m.tool_call_id for m in messages if m.role == "tool"]
+    assert len(tool_ids) == MAX_TOOL_TURNS
+    assert tool_ids[0] == f"c{3}"
+    assert sum(m.content.startswith("reply") for m in messages) == MAX_TOOL_TURNS + 2
