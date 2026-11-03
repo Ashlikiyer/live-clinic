@@ -2,7 +2,7 @@ from typing import Any
 
 from app.agent.context import EndRequest, ToolContext, ToolResult
 from app.agent.tools import EndCallArgs
-from app.call.confirm import sounds_like_goodbye
+from app.call.confirm import sounds_like_goodbye, transfer_allowed
 from app.scheduling.booking import Rejection
 
 NOT_DONE = Rejection(
@@ -11,9 +11,19 @@ NOT_DONE = Rejection(
 )
 
 
+NO_TRANSFER_REQUEST = Rejection(
+    "TRANSFER_NOT_REQUESTED",
+    "Don't transfer unless the caller asks for a person or says yes to your offer. "
+    "Keep helping them, or offer a transfer and wait for their answer.",
+)
+
+
 async def handle(ctx: ToolContext, args: EndCallArgs) -> ToolResult:
-    # Transfers and emergencies end the call on the agent's call; a normal goodbye needs the
-    # caller to have said they're done, so the agent can't hang up on them mid-conversation.
+    # A transfer needs the caller's say-so; an emergency ends on the agent's call; a normal
+    # goodbye needs the caller to have said they're done. The agent can't hang up on a caller
+    # mid-conversation.
+    if args.transfer and not transfer_allowed(ctx.last_user_text):
+        return ToolResult.rejected(NO_TRANSFER_REQUEST)
     closing = args.transfer or args.outcome == "emergency_advised"
     if not closing and not sounds_like_goodbye(ctx.last_user_text):
         return ToolResult.rejected(NOT_DONE)

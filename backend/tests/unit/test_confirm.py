@@ -1,6 +1,11 @@
 import pytest
 
-from app.call.confirm import classify_confirmation, sounds_like_goodbye
+from app.call.confirm import (
+    asks_for_a_person,
+    classify_confirmation,
+    sounds_like_goodbye,
+    transfer_allowed,
+)
 
 
 @pytest.mark.parametrize(
@@ -68,3 +73,27 @@ def test_unclear_goes_to_the_llm_check(text: str) -> None:
 )
 def test_goodbye_detection(text: str, done: bool) -> None:
     assert sounds_like_goodbye(text) is done
+
+
+@pytest.mark.parametrize(
+    ("text", "asks"),
+    [
+        ("Can I speak to someone in billing?", True),
+        ("I want to talk to a real person", True),
+        ("Please transfer me.", True),
+        ("Is there a human I can talk to?", True),
+        ("Can you connect me to the front desk?", True),
+        ("March 3, 1990.", False),
+        ("I'd like to book a consult for a cough.", False),
+        ("Can I speak Tagalog?", False),
+    ],
+)
+def test_asks_for_a_person(text: str, asks: bool) -> None:
+    assert asks_for_a_person(text) is asks
+
+
+def test_transfer_needs_a_request_or_a_clear_yes() -> None:
+    assert transfer_allowed("Yes, please transfer me.")
+    assert transfer_allowed("Yes please")  # answering Mia's transfer offer
+    assert not transfer_allowed("March 3, 1990.")
+    assert not transfer_allowed("No, I'll call back later.")

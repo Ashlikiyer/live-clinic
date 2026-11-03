@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Any
 from app.agent.context import ToolContext
 from app.agent.handlers import run_tool
 from app.agent.prompt import (
+    ANYTHING_ELSE_LINE,
     GIVE_UP_LINE,
     GOODBYE_LINE,
     LLM_RECOVERY_LINE,
@@ -148,6 +149,11 @@ async def _reply(call: "CallSession", turn_id: int) -> None:
                 # Mia already asked her question; anything more would be dropped anyway.
                 # The tool results stay in the history for the next turn. Saves an LLM call.
                 break
+            if round_text and _wrapped_up_too_early(requests, results):
+                # Mia said her closing lines but the caller isn't done: ask instead of another
+                # LLM round, which would repeat them. Saves an LLM call too.
+                await say(ANYTHING_ELSE_LINE)
+                break
             messages.append(ChatMessage("assistant", round_text, tool_calls=tuple(requests)))
             messages += [ChatMessage("tool", content, tool_call_id=cid) for cid, content in results]
         else:
@@ -155,18 +161,26 @@ async def _reply(call: "CallSession", turn_id: int) -> None:
             asked = False  # the apology must always be heard
             await say(GIVE_UP_LINE)
         await flush()
+        if not entry.text:
+            # The model returned nothing to say (no text, no tools): never leave the caller in
+            # silence, ask them to repeat instead.
+            await say(LLM_RECOVERY_LINE)
+            await flush()
         await call.send("agent.text.done", turn_id=turn_id)
     except ProviderError as exc:
         if (end := call.tool_state.end_request) is not None:
             # end_call already went through: say goodbye ourselves and hang up as agreed.
             call.tool_state.end_request = None
             await call.speak(GOODBYE_LINE, turn_id)
+            call.save_tool_calls(record)  # speak() saved the turn row; audit its tools too
             await call.end(end.outcome, end.summary)
             return
         if not entry.text:
             call.history.entries.remove(entry)
         await call.send_error(exc.code, exc.message, exc.retryable)
         await call.speak(LLM_RECOVERY_LINE, turn_id)
+        # Tools may have run before the LLM failed (a cancel, a booking): keep their audit.
+        call.save_tool_calls(record)
         return
     except asyncio.CancelledError:
         # Barge-in or a newer turn: keep what was generated; the interrupt handler trims it.
@@ -181,6 +195,17 @@ async def _reply(call: "CallSession", turn_id: int) -> None:
     if (end := call.tool_state.end_request) is not None:
         call.tool_state.end_request = None
         await call.end(end.outcome, end.summary)
+
+
+def _wrapped_up_too_early(requests: list[ToolCallRequest], results: list[tuple[str, str]]) -> bool:
+    """end_call was refused because the caller isn't done, and every other tool succeeded."""
+    errors = {
+        req.name: json.loads(content).get("error")
+        for req, (_, content) in zip(requests, results, strict=True)
+    }
+    return errors.get("end_call") == "CALLER_NOT_DONE" and all(
+        error is None for name, error in errors.items() if name != "end_call"
+    )
 
 
 async def _run_tools(

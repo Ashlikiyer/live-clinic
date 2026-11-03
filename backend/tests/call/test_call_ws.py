@@ -7,7 +7,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from fastapi.testclient import TestClient
 
-from app.agent.prompt import GREETING, RECONNECT_LINE, STT_RECOVERY_LINE
+from app.agent.prompt import GREETING, LLM_RECOVERY_LINE, RECONNECT_LINE, STT_RECOVERY_LINE
 from app.core.config import get_settings
 from app.providers.fake import FakeLLM, FakeSTT
 from app.repositories.calls import MemoryCallStore
@@ -181,6 +181,16 @@ def test_llm_failure_sends_error_and_recovery_line(client: TestClient, llm: Fake
         ws.send_json({"type": "text.message", "text": "hello", "ts": 1})
         events = receive_until(ws, "agent.text.done", turn_id=1)
     assert any(e["type"] == "error" and e["code"] == "LLM_FAILED" for e in events)
+
+
+def test_an_empty_llm_reply_still_answers_the_caller(client: TestClient, llm: FakeLLM) -> None:
+    llm.replies = [""]  # e.g. a reasoning model that used its whole reply on reasoning
+    token = new_token(client)
+    with client.websocket_connect(f"/ws/call?token={token}") as ws:
+        start_call(ws)
+        ws.send_json({"type": "text.message", "text": "hello", "ts": 1})
+        events = receive_until(ws, "agent.text.done", turn_id=1)
+    assert text_of(events, 1) == LLM_RECOVERY_LINE
 
 
 def test_call_limit_per_ip(

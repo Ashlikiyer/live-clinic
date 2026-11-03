@@ -29,8 +29,9 @@ rules for AI coding assistants are in [CLAUDE.md](CLAUDE.md).
     calls can't double-book.
   - At most 3 tools per round and 4 LLM rounds per caller turn.
   - A reply stops at its first question, so the model can't answer for the caller.
-  - `end_call` is refused until the caller signals they're done (transfers and emergencies
-    excepted).
+  - `end_call` is refused until the caller signals they're done (emergencies excepted). A
+    transfer needs the caller to have asked for a person, or to have said yes to Mia's offer
+    (`TRANSFER_NOT_REQUESTED` otherwise).
 
   The calendar and doctors load from `GET /api/calendar` and `GET /api/clinic`. A cached
   "Let me check that." plays if a tool runs for 700 ms with nothing said yet. After 8 s of
@@ -55,12 +56,73 @@ rules for AI coding assistants are in [CLAUDE.md](CLAUDE.md).
     `.github/workflows/cleanup.yml` calls it daily at 02:00 Manila time once the `API_URL`
     and `CRON_SECRET` repository secrets are set.
 
-Next is **Phase 4**: the scenario runner (a simulated caller with database checks) and the
-LLM judge.
+- **Phase 4 (conversation scenarios):** done. A simulated caller talks to Mia through the
+  real Groq models, each call ends with database checks, and an LLM judge scores it. See
+  [Conversation scenarios](#conversation-scenarios).
+
+## Conversation scenarios
+
+`backend/tests/scenarios/` holds the 11 scenarios from the spec, from "new patient books a
+consult for a cough" to "requested day fully booked".
+
+- **How a run works:** the backend runs in-process with the real Groq provider and your
+  database. Each scenario gets a fresh session and talks over the real WebSocket in text mode
+  (`text.message`), so everything except audio is exercised.
+- **The caller** is `openai/gpt-oss-20b` with a persona and a goal. Some scenarios prepare the
+  session first: a seeded patient to reschedule or cancel, or a day filled for every doctor.
+- **Database checks** decide pass or fail: appointments, the intake form (and its "corrected"
+  tag), the call outcome and the tool audit rows.
+- **The judge** (`openai/gpt-oss-120b`) then scores politeness, brevity and one question per
+  turn from 1 to 5, and answers scenario checks such as "Mia gave no medical advice". Simple
+  counts done in code (most sentences in a reply, replies with two questions) sit beside the
+  scores.
+- **Results** are appended to `backend/tests/scenarios/results.csv`, one row per scenario, so
+  runs before and after a prompt change can be compared. Transcripts go to
+  `backend/tests/scenarios/transcripts/` (not committed).
+
+```bash
+cd backend
+uv run python -m tests.scenarios --list
+uv run python -m tests.scenarios                         # all 11, about 25 minutes
+uv run python -m tests.scenarios chest_pain medical_advice --label "shorter prompt"
+```
+
+They need `PROVIDER=groq` and the Groq key in `.env`. One Mia reply costs about 2,500 tokens
+per LLM round, and the free tier allows 8,000 tokens per minute per model, so caller lines are
+at least 20 s apart (`--pace`), with a 45 s pause between scenarios (`--cooldown`). If a model
+stays rate limited, that scenario is marked "stopped" and the run moves on.
+
+**Mind the daily limit.** The free tier also caps each model at 200,000 tokens per day, and
+the live demo uses the same budget. All 11 scenarios use roughly 300,000 tokens or more, so
+run a few at a time (for example the ones a prompt change affects), not the whole set daily.
+That's also why the GitHub workflow is manual only.
+
+### What the scenarios found
+
+The first runs turned up real bugs, all fixed with tests:
+
+- **Silent replies.** When Qwen was rate limited, the `gpt-oss` fallback spent its 160-token
+  reply on hidden reasoning and said nothing. Reasoning models now get 1,024 extra tokens,
+  and an empty reply becomes "Sorry, I had a little trouble there. Could you repeat that?"
+- **A made-up transfer.** A fallback model asked for a phone number and transferred the
+  caller in the same reply. Transfers now need the caller's say-so (see Phase 2 above).
+- **Repeated goodbyes.** When Mia wrapped up before the caller was done, the refused
+  `end_call` led to a second LLM round that repeated her closing lines. She now asks "Is
+  there anything else I can help you with?" instead, which also saves a round.
+- **Lost audit rows.** If the LLM failed after a tool had run in that turn (a cancel, a
+  booking), the tool's `tool_calls` row was never saved.
+- **A form saved all at once.** Mia sometimes held every detail until the end, so a
+  corrected birthday was never marked "corrected" and the on-screen form didn't fill as the
+  caller spoke. The prompt now asks for each detail to be saved in the same reply.
+
+The runner itself is tested with fake providers in normal CI. The real run is in
+`.github/workflows/scenarios.yml`, started by hand from the Actions tab once a `GROQ_API_KEY`
+repository secret is set. Its CSV and transcripts are uploaded as a build artifact.
 
 ## Groq free tier: what it allows
 
-Every chat model on the free tier is limited to **8,000 tokens per minute, per model**. An
+Every chat model on the free tier is limited to **8,000 tokens per minute and 200,000
+tokens per day, per model**. An
 LLM call with Mia's prompt, the 10 tool schemas and a few turns of history is about
 2,000–2,800 tokens. To fit a real call into that:
 

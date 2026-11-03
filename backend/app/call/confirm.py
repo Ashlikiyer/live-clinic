@@ -92,3 +92,26 @@ _CLOSING = re.compile(
 def sounds_like_goodbye(text: str) -> bool:
     """Did the caller signal they're finished? Guards end_call against hanging up early."""
     return bool(_CLOSING.search(_normalize(text)))
+
+
+_PERSON = (
+    r"(a |an |the |some |)(real |live |actual |)"
+    r"(person|human|someone|somebody|staff|agent|representative|receptionist|manager|"
+    r"operator|doctor|nurse|billing|front desk)"
+)
+_WANTS_PERSON = re.compile(
+    rf"\b((speak|talk|chat) (to|with) {_PERSON}|transfer|connect me|put me through|"
+    rf"real person|human|operator)"
+)
+
+
+def asks_for_a_person(text: str) -> bool:
+    """Did the caller ask for a person (or to be transferred)? Pure."""
+    return bool(_WANTS_PERSON.search(_normalize(text)))
+
+
+def transfer_allowed(text: str) -> bool:
+    """A transfer ends the call, so it needs the caller's say-so: they asked for a person, or
+    they clearly said yes (to a transfer Mia offered). Guards against a model hanging up on a
+    caller mid-booking with a made-up transfer."""
+    return asks_for_a_person(text) or classify_confirmation(text) == "yes"

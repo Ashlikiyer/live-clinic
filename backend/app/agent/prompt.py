@@ -11,6 +11,7 @@ GREETING = (
 RECONNECT_LINE = "Sorry, we got cut off. Where were we?"
 STT_RECOVERY_LINE = "Sorry, I didn't catch that. Could you say it again?"
 LLM_RECOVERY_LINE = "Sorry, I had a little trouble there. Could you repeat that?"
+ANYTHING_ELSE_LINE = "Is there anything else I can help you with?"
 GOODBYE_LINE = "Thanks for calling Bayview Family Clinic. Goodbye!"
 GIVE_UP_LINE = "Sorry, I'm having trouble with that right now. I can have the staff call you back."
 TIME_LIMIT_LINE = (
@@ -42,7 +43,9 @@ _TOOLS = """
 Tool dates are YYYY-MM-DD. Upcoming days: {days}.
 Never mention specific times until check_availability returns them.
 - Every time the caller gives or corrects a form detail (name, birthday, phone, reason,
-  symptoms, how long, allergies, insurance, doctor), call update_intake_form in that reply.
+  symptoms, how long, allergies, insurance, doctor), call update_intake_form in that same
+  reply, with just the new details. Never hold details back to save them all at once: the
+  form fills on screen as the caller speaks, and a correction must replace a saved value.
 - Booking needs full name, date of birth, phone and reason; ask one at a time. Don't ask for
   allergies or insurance unless the caller brings them up. Once you have all four, call
   check_availability for the day they asked for.

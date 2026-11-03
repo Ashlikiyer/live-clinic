@@ -17,7 +17,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
-from app.agent.prompt import GIVE_UP_LINE, GOODBYE_LINE
+from app.agent.prompt import ANYTHING_ELSE_LINE, GIVE_UP_LINE, GOODBYE_LINE, LLM_RECOVERY_LINE
 from app.call.session import ToolDeps
 from app.core.config import get_settings
 from app.core.errors import ErrorCode
@@ -292,6 +292,36 @@ def test_transfer_to_staff(sql_client: TestClient, llm: FakeLLM) -> None:
     assert events[-1]["outcome"] == "transferred"
 
 
+def test_an_early_goodbye_becomes_anything_else(sql_client: TestClient, llm: FakeLLM) -> None:
+    end = ("end_call", {"outcome": "info_only", "summary": "Asked about hours."})
+    llm.replies = [
+        ToolStep([end], text="We open at 9 AM. Have a great day!"),
+        "This must never be spoken.",
+    ]
+    token = new_token(sql_client)
+    with sql_client.websocket_connect(f"/ws/call?token={token}") as ws:
+        start_call(ws)
+        events = say(ws, "When do you open?", 1)
+    assert text_of(events, 1) == (f"We open at 9 AM. Have a great day! {ANYTHING_ELSE_LINE}")
+    assert len(llm.calls) == 1  # no second round to repeat the closing lines
+    assert not of_type(events, "call.ended")
+
+
+def test_no_transfer_the_caller_did_not_ask_for(sql_client: TestClient, llm: FakeLLM) -> None:
+    transfer = {"outcome": "transferred", "summary": "No phone number.", "transfer": True}
+    llm.replies = [
+        ToolStep([("end_call", transfer)], text="May I have a contact phone number?"),
+    ]
+    token = new_token(sql_client)
+    with sql_client.websocket_connect(f"/ws/call?token={token}") as ws:
+        start_call(ws)
+        events = say(ws, "March 3, 1990.", 1)
+    assert tool_errors(llm) == []  # the question ended the turn before another LLM round
+    finished = of_type(events, "tool.finished")
+    assert finished[0]["name"] == "end_call" and finished[0]["ok"] is False
+    assert not of_type(events, "call.transferring") and not of_type(events, "call.ended")
+
+
 def test_runaway_tool_loop_gives_up_politely(sql_client: TestClient, llm: FakeLLM) -> None:
     looping = ToolStep([("get_clinic_info", {"topic": "hours", "question": "hours?"})])
     llm.replies = [looping] * 4
@@ -395,6 +425,47 @@ def test_goodbye_still_happens_if_the_llm_fails_after_end_call(
         events = receive_until(ws, "call.ended")
     assert text_of(events, 1) == GOODBYE_LINE
     assert events[-1]["outcome"] == "info_only"
+
+
+def test_tools_are_audited_even_if_the_llm_fails_after_them(
+    sql_client: TestClient, llm: FakeLLM
+) -> None:
+    class FailAfterTools(FakeLLM):
+        async def stream(
+            self, messages: list[ChatMessage], tools: list[dict[str, Any]] | None = None
+        ) -> AsyncIterator[LLMChunk]:
+            if any(m.role == "tool" for m in messages):
+                raise ProviderError(ErrorCode.RATE_LIMITED, "busy")
+            async for chunk in super().stream(messages, tools):
+                yield chunk
+
+    failing = FailAfterTools(
+        replies=[ToolStep([("update_intake_form", {"full_name": "Ana Cruz"})])]
+    )
+    sql_client.app.state.providers = Providers(stt=FakeSTT(), llm=failing)  # type: ignore[attr-defined]
+    token = new_token(sql_client)
+    with sql_client.websocket_connect(f"/ws/call?token={token}") as ws:
+        call_id = start_call(ws)[0]["call_id"]
+        events = say(ws, "I'm Ana Cruz", 1)
+    assert text_of(events, 1) == LLM_RECOVERY_LINE
+
+    async def audited() -> list[str]:
+        sessionmaker = fresh_sessionmaker()
+        for _ in range(50):
+            async with sessionmaker() as db:
+                names = list(
+                    await db.scalars(
+                        select(ToolCall.name)
+                        .join(Turn, Turn.id == ToolCall.turn_id)
+                        .where(Turn.call_id == uuid.UUID(call_id))
+                    )
+                )
+            if names:
+                return names
+            await asyncio.sleep(0.1)
+        return []
+
+    assert asyncio.run(audited()) == ["update_intake_form"]
 
 
 def test_no_second_llm_round_after_mia_has_asked_her_question(

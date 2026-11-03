@@ -1,0 +1,74 @@
+name: Conversation scenarios
+
+# A simulated caller talks to Mia through the real Groq models, then the database is checked
+# and an LLM judge scores each call. On demand only: Groq's free tier allows 200,000 tokens per
+# model per day, and a full run uses most of that, which the live demo needs too. Skipped
+# until the GROQ_API_KEY repository secret is set.
+on:
+  workflow_dispatch:
+    inputs:
+      scenarios:
+        description: "Scenario names, space separated (empty = all)"
+        required: false
+        default: ""
+
+jobs:
+  scenarios:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: backend
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: clinic
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres -d clinic"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/clinic
+      PROVIDER: groq
+      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+      LLM_MODEL: qwen/qwen3.8-27b
+      LLM_REASONING_EFFORT: none
+      UV_PYTHON: "3.12"
+    steps:
+      - name: Check for the Groq key
+        id: key
+        run: |
+          if [ -z "$GROQ_API_KEY" ]; then
+            echo "GROQ_API_KEY secret not set; skipping the scenarios."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/checkout@v4
+        if: steps.key.outputs.ready == 'true'
+      - uses: astral-sh/setup-uv@v6
+        if: steps.key.outputs.ready == 'true'
+        with:
+          enable-cache: true
+      - name: Set up the database
+        if: steps.key.outputs.ready == 'true'
+        run: |
+          uv sync --frozen
+          uv run alembic upgrade head
+          uv run python -m seed
+      - name: Run the scenarios
+        if: steps.key.outputs.ready == 'true'
+        env:
+          SCENARIOS: ${{ github.event.inputs.scenarios }}
+        # $SCENARIOS is split into names on purpose (and passed via env, never inlined).
+        run: uv run python -m tests.scenarios $SCENARIOS --label "ci $GITHUB_SHA"
+      - name: Upload results and transcripts
+        if: always() && steps.key.outputs.ready == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: scenario-results
+          path: |
+            backend/tests/scenarios/results.csv
+            backend/tests/scenarios/transcripts/

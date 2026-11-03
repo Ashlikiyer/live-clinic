@@ -7,7 +7,12 @@ import pytest
 
 from app.core.errors import ErrorCode
 from app.providers.base import ChatMessage, ProviderError
-from app.providers.groq_llm import GroqLLM, ModelChoice, parse_model_list
+from app.providers.groq_llm import (
+    REASONING_TOKEN_ALLOWANCE,
+    GroqLLM,
+    ModelChoice,
+    parse_model_list,
+)
 
 
 def sse(text: str) -> bytes:
@@ -56,6 +61,9 @@ async def test_falls_back_on_rate_limit_and_skips_the_limited_model_afterwards()
     llm = make(fake)
     assert await reply(llm) == "from oss-120b"
     assert fake.requests[1]["reasoning_effort"] == "low"
+    # The reasoning fallback gets room to reason before its short spoken reply.
+    assert fake.requests[0]["max_tokens"] == 160
+    assert fake.requests[1]["max_tokens"] == 160 + REASONING_TOKEN_ALLOWANCE
     assert await reply(llm) == "from oss-120b"
     # The second call didn't waste a request on the cooling-down model.
     assert [r["model"] for r in fake.requests] == ["qwen", "oss-120b", "oss-120b"]

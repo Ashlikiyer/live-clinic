@@ -114,6 +114,18 @@ def parse_model_list(spec: str) -> list[ModelChoice]:
 
 
 DEFAULT_COOLDOWN_S = 20.0
+# Reasoning models (gpt-oss) count their hidden reasoning against max_tokens. Without extra
+# room a short reply cap can be used up before any spoken text, and the reply comes back empty.
+# Kept modest: "low" effort reasons briefly, and a request's max_tokens counts against the
+# free tier's tokens-per-minute budget.
+REASONING_TOKEN_ALLOWANCE = 400
+
+
+def reply_token_limit(max_tokens: int, reasoning_effort: str) -> int:
+    reasons = reasoning_effort not in ("", "none")
+    return max_tokens + REASONING_TOKEN_ALLOWANCE if reasons else max_tokens
+
+
 # If every model is rate limited but one frees up within this many seconds, wait for it rather
 # than failing the turn (a short pause beats "Sorry, I had trouble").
 MAX_WAIT_S = 4.0
@@ -203,7 +215,7 @@ class GroqLLM:
             "model": choice.name,
             "messages": [message_payload(m) for m in messages],
             "temperature": self._temperature,
-            "max_tokens": self._max_tokens,
+            "max_tokens": reply_token_limit(self._max_tokens, choice.reasoning_effort),
             "stream": True,
         }
         if tools:
