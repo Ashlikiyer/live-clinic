@@ -137,6 +137,7 @@ def test_barge_in_keeps_only_played_text(
                 "turn_id": 1,
                 "played_text": "I'm holding Wednesday",
                 "played_ms": 900,
+                "stop_ms": 430,
                 "ts": 2,
             }
         )
@@ -156,6 +157,8 @@ def test_barge_in_keeps_only_played_text(
             for t in store.turns.values()
         )
     )
+    # The barge-in stop time is saved with the interrupted turn's metrics.
+    wait_for(lambda: any(m.get("stop_ms") == 430 for m in store.metrics.values()))
 
 
 def test_stt_failure_sends_error_and_recovery_line(client: TestClient, stt: FakeSTT) -> None:

@@ -44,6 +44,9 @@ class UserInterrupt(_ClientEvent):
     turn_id: int
     played_text: Annotated[str, Field(max_length=4000)] = ""
     played_ms: int = 0
+    # Browser-measured: caller started speaking -> Mia's audio stopped (includes the 400 ms
+    # barge-in threshold). An addition to the spec, for the interruption stats.
+    stop_ms: Annotated[int, Field(ge=0, le=60_000)] | None = None
 
 
 class TtsFirstAudio(_ClientEvent):

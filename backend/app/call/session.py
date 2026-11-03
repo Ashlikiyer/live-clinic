@@ -357,11 +357,14 @@ class CallSession:
         if record is None:
             return
         record.timing.interrupted = True
+        record.timing.stop_ms = event.stop_ms
         if entry is not None and record.db_turn_id is not None:
             db_id, text = record.db_turn_id, entry.text
             self.db(lambda: self.store.update_turn(db_id, text, True))
         if not record.metrics_sent and record.timing.client_start_ts is not None:
             await self.send_metrics(event.turn_id)
+        elif record.metrics_sent:
+            self.persist_metrics(event.turn_id)  # add stop_ms to the saved row
 
     def _on_first_audio(self, event: TtsFirstAudio) -> None:
         record = self.turns.get(event.turn_id)
@@ -396,5 +399,7 @@ class CallSession:
         record = self.turns.get(turn_id)
         if record is None or record.metrics_payload is None or record.db_turn_id is None:
             return
-        db_id, payload = record.db_turn_id, record.metrics_payload
-        self.db(lambda: self.store.save_metrics(db_id, payload["stages"], payload["total_ms"]))
+        db_id, payload, stop_ms = record.db_turn_id, record.metrics_payload, record.timing.stop_ms
+        self.db(
+            lambda: self.store.save_metrics(db_id, payload["stages"], payload["total_ms"], stop_ms)
+        )

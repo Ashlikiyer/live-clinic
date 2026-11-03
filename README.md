@@ -36,8 +36,27 @@ rules for AI coding assistants are in [CLAUDE.md](CLAUDE.md).
   "Let me check that." plays if a tool runs for 700 ms with nothing said yet. After 8 s of
   silence Mia asks "Are you still there?", and after another 8 s she ends the call.
 
-Next is **Phase 3**: Latency X-ray polish and the summary card from stored call data, then
-Phase 4's scenario runner.
+- **Phase 3 (Latency X-ray, summary card and stats):** done.
+  - **Latency X-ray:** every reply is a stacked bar of its pipeline stages. Tool time is drawn
+    hatched inside the LLM stage, interruptions carry ⚡, and there's a 1.5 s target line. A
+    hover or focus tooltip shows exact milliseconds, and a table view lists every value. The
+    stage colors are a validated colorblind-safe palette, in both light and dark mode.
+  - **Summary card:** shows Mia's own call summary, the appointment, the form snapshot, call
+    length, replies, median and slowest reply, and interruptions. Live calls download the
+    stored transcript from the server.
+  - **Barge-in timing:** the browser measures how long Mia takes to go quiet once the caller
+    starts talking, and it's stored with the interrupted turn.
+  - **`/stats`** (public, no transcripts): the last 7 days of median and p95 reply time, the
+    median of each stage, a reply-time histogram, a daily trend, which stage made slow
+    replies slow, and interruptions.
+  - **Daily cleanup:** `POST /api/internal/cleanup` (header `X-Cron-Secret`) rolls expired
+    sessions into `daily_stats`, then deletes them. The rollup keeps 50 ms histograms, so
+    weekly medians and p95 stay accurate after per-turn data is gone.
+    `.github/workflows/cleanup.yml` calls it daily at 02:00 Manila time once the `API_URL`
+    and `CRON_SECRET` repository secrets are set.
+
+Next is **Phase 4**: the scenario runner (a simulated caller with database checks) and the
+LLM judge.
 
 ## Groq free tier: what it allows
 
@@ -92,7 +111,11 @@ that the browser serves it from cache.
 ### Notes on the spec
 
 - **Extra client values:** `call.end` may carry `reason: "silence"` (the 8-second rule), so
-  the call record says why it ended.
+  the call record says why it ended. `user.interrupt` may carry `stop_ms`: the time from the
+  caller's first word to Mia going quiet, which includes the 400 ms barge-in threshold.
+- **Clock sync:** the spec's three-message clock-sync handshake isn't implemented. The
+  approximate upload stage uses a single offset taken at call start. Total reply time is
+  measured entirely in the browser, so it doesn't depend on this.
 - **LLM:** `llama-3.3-70b-versatile` isn't available to this Groq key. `qwen/qwen3.8-27b`
   with `LLM_REASONING_EFFORT=none` replied fastest (about 370 ms vs about 700 ms for the
   `gpt-oss` models) and followed Mia's rules best.

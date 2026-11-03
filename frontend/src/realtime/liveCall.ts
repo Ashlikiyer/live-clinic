@@ -39,6 +39,8 @@ export class LiveCall {
   private readonly slowVoice = new SlowVoiceDetector();
   private callId: string | null = null;
   private utterance: Utterance | null = null;
+  /** performance.now() when the caller's current speech began (for barge-in stop time). */
+  private speechStartedAt = 0;
   private bargeTimer: ReturnType<typeof setTimeout> | null = null;
   private finished = false;
   private endWaiter: (() => void) | null = null;
@@ -201,6 +203,7 @@ export class LiveCall {
   private onSpeechStart(): void {
     if (this.finished || store().muted) return;
     this.callerActive();
+    this.speechStartedAt = performance.now();
     store().setUserSpeaking(true);
     const agentSpeakingAtStart = this.player.isSpeaking;
     this.utterance = { agentSpeakingAtStart, bargedIn: false };
@@ -249,6 +252,9 @@ export class LiveCall {
       turn_id: turnId,
       played_text: playedText,
       played_ms: heard?.playedMs ?? 0,
+      // From the caller's first word to silence; includes the BARGE_IN_MIN_MS wait. A typed
+      // message interrupts at once, so it has no speech start to measure from.
+      ...(this.utterance ? { stop_ms: Math.round(performance.now() - this.speechStartedAt) } : {}),
     });
     store().interrupt(turnId, playedText);
   }

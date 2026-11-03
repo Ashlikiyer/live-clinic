@@ -15,13 +15,15 @@ from app.providers.factory import build_providers
 from app.repositories.booking import BookingRepository
 from app.repositories.calls import CallStore, SqlCallStore
 from app.repositories.clinic import ClinicInfoRepository
-from app.routers import call_ws, calls, clinic, health, sessions
+from app.repositories.stats import StatsRepository
+from app.routers import call_ws, calls, clinic, health, sessions, stats
 
 
 def create_app(
     store: CallStore | None = None,
     providers: Providers | None = None,
     tools: ToolDeps | None = None,
+    stats_repo: StatsRepository | None = None,
 ) -> FastAPI:
     """Build the app. Tests pass an in-memory store and fake providers.
 
@@ -37,6 +39,9 @@ def create_app(
             app.state.store = store or SqlCallStore(sessionmaker)
             app.state.providers = providers or build_providers(settings, client)
             app.state.tools = tools
+            app.state.stats = stats_repo
+            if store is None and stats_repo is None:
+                app.state.stats = StatsRepository(sessionmaker, ZoneInfo(settings.clinic_timezone))
             if tools is None and store is None:
                 tz = ZoneInfo(settings.clinic_timezone)
                 app.state.tools = ToolDeps(
@@ -57,6 +62,7 @@ def create_app(
     app.include_router(sessions.router)
     app.include_router(clinic.router)
     app.include_router(calls.router)
+    app.include_router(stats.router)
     app.include_router(call_ws.router)
     return app
 

@@ -110,3 +110,13 @@ export function fetchClinic(token: string): Promise<ClinicResponse> {
 export function fetchCalendarDay(token: string, date: string): Promise<CalendarResponse> {
   return getJson<CalendarResponse>(`/api/calendar?date=${encodeURIComponent(date)}`, token);
 }
+
+/** The stored transcript of one of this visitor's calls (GET /api/calls/{id}/transcript.txt). */
+export async function fetchTranscript(callId: string): Promise<string> {
+  const token = await getSessionToken();
+  const response = await fetch(`${API_URL}/api/calls/${encodeURIComponent(callId)}/transcript.txt`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!response.ok) throw new ApiError("UNAVAILABLE", "Transcript unavailable.");
+  return response.text();
+}

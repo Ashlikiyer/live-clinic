@@ -63,7 +63,11 @@ class CallStore(Protocol):
     ) -> None: ...
     async def update_turn(self, turn_id: uuid.UUID, text: str, interrupted: bool) -> None: ...
     async def save_metrics(
-        self, turn_id: uuid.UUID, stages: dict[str, int | None], total_ms: int
+        self,
+        turn_id: uuid.UUID,
+        stages: dict[str, int | None],
+        total_ms: int,
+        stop_ms: int | None = None,
     ) -> None: ...
     async def end_call(
         self, call_id: uuid.UUID, outcome: str, summary: str, turn_count: int
@@ -156,6 +160,7 @@ class SqlCallStore:
                     "first_sentence_ms": m.first_sentence_ms,
                     "tts_ms": m.tts_ms,
                     "total_ms": m.total_ms,
+                    "stop_ms": m.stop_ms,
                 }
                 for m in rows.scalars()
             ]
@@ -193,10 +198,16 @@ class SqlCallStore:
             await db.commit()
 
     async def save_metrics(
-        self, turn_id: uuid.UUID, stages: dict[str, int | None], total_ms: int
+        self,
+        turn_id: uuid.UUID,
+        stages: dict[str, int | None],
+        total_ms: int,
+        stop_ms: int | None = None,
     ) -> None:
         async with self._sessionmaker() as db:
-            await db.merge(TurnMetrics(turn_id=turn_id, total_ms=total_ms, **stages))
+            await db.merge(
+                TurnMetrics(turn_id=turn_id, total_ms=total_ms, stop_ms=stop_ms, **stages)
+            )
             await db.commit()
 
     async def end_call(
@@ -310,9 +321,13 @@ class MemoryCallStore:
         self.turns[turn_id].update(text=text, interrupted=interrupted)
 
     async def save_metrics(
-        self, turn_id: uuid.UUID, stages: dict[str, int | None], total_ms: int
+        self,
+        turn_id: uuid.UUID,
+        stages: dict[str, int | None],
+        total_ms: int,
+        stop_ms: int | None = None,
     ) -> None:
-        self.metrics[turn_id] = {**stages, "total_ms": total_ms}
+        self.metrics[turn_id] = {**stages, "total_ms": total_ms, "stop_ms": stop_ms}
 
     async def end_call(
         self, call_id: uuid.UUID, outcome: str, summary: str, turn_count: int

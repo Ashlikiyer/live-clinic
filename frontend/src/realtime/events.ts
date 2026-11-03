@@ -119,7 +119,11 @@ export type ServerEventOf<T extends ServerEventType> = Extract<ServerEvent, { ty
 export type ClientEvent =
   | Event<"call.start", { voice: "kokoro" | "lite"; captions: boolean; resume_call_id?: string }>
   | Event<"text.message", { text: string }>
-  | Event<"user.interrupt", { turn_id: number; played_text: string; played_ms: number }>
+  | Event<
+      "user.interrupt",
+      // stop_ms (addition to the spec): caller started speaking -> Mia's audio stopped.
+      { turn_id: number; played_text: string; played_ms: number; stop_ms?: number }
+    >
   | Event<"tts.first_audio", { turn_id: number; tts_ms?: number }>
   | Event<"call.end", { reason: "user" | "silence" }>
   | Event<"ping">;

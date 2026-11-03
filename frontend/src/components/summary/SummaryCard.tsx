@@ -11,6 +11,7 @@ import {
   formatMs,
   formatTime,
 } from "@/lib/time";
+import { fetchTranscript } from "@/lib/api";
 import { transcriptText } from "@/lib/transcript";
 import type { CallOutcome } from "@/realtime/events";
 import { useCallStore } from "@/store/callStore";
@@ -39,6 +40,9 @@ export function SummaryCard({ onCallAgain, onClose }: { onCallAgain: () => void;
   const ended = useCallStore((s) => s.ended);
   const form = useCallStore((s) => s.form);
   const transcript = useCallStore((s) => s.transcript);
+  const kind = useCallStore((s) => s.kind);
+  const callId = useCallStore((s) => s.callId);
+  const interruptions = useCallStore((s) => s.metrics.filter((m) => m.interrupted).length);
   const appointment = useCallStore((s) => latestConfirmed(s.appointments));
   const doctors = useCallStore((s) => s.doctors);
   if (!ended) return null;
@@ -51,7 +55,17 @@ export function SummaryCard({ onCallAgain, onClose }: { onCallAgain: () => void;
     { label: "Replies", value: String(stats.turn_count) },
     { label: "Median reply", value: stats.median_reply_ms === null ? "—" : formatMs(stats.median_reply_ms) },
     { label: "Slowest reply", value: stats.slowest_reply_ms === null ? "—" : formatMs(stats.slowest_reply_ms) },
+    { label: "Interruptions", value: String(interruptions) },
   ];
+
+  const downloadTranscript = async () => {
+    const local = transcriptText(transcript, [`Outcome: ${OUTCOME_LABEL[ended.outcome]}`, ended.summary]);
+    // Live calls download the server's stored copy; the scripted demo (or a failure) uses
+    // what is on screen.
+    const text =
+      kind === "live" && callId ? await fetchTranscript(callId).catch(() => local) : local;
+    download("bayview-call-transcript.txt", text);
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-4 sm:items-center" role="dialog" aria-modal="true" aria-labelledby="summary-title">
@@ -76,7 +90,7 @@ export function SummaryCard({ onCallAgain, onClose }: { onCallAgain: () => void;
           </div>
         )}
 
-        <dl className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <dl className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3">
           {statItems.map((item) => (
             <div key={item.label} className="rounded-xl bg-surface-muted p-3">
               <dt className="text-[11px] text-ink-muted">{item.label}</dt>
@@ -109,12 +123,7 @@ export function SummaryCard({ onCallAgain, onClose }: { onCallAgain: () => void;
           </button>
           <button
             type="button"
-            onClick={() =>
-              download(
-                "bayview-call-transcript.txt",
-                transcriptText(transcript, [`Outcome: ${OUTCOME_LABEL[ended.outcome]}`, ended.summary]),
-              )
-            }
+            onClick={() => void downloadTranscript()}
             className="flex-1 rounded-full border border-line px-4 py-2.5 font-medium hover:bg-surface-muted"
           >
             Download transcript

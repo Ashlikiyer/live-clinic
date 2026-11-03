@@ -22,14 +22,18 @@
   --glow: #a7f3d0;
   --danger: #dc2626;
 
-  /* Latency X-ray stages */
-  --stage-vad: #94a3b8;
-  --stage-upload: #60a5fa;
-  --stage-stt: #a78bfa;
-  --stage-llm: #f472b6;
-  --stage-sentence: #fb923c;
-  --stage-tts: #34d399;
-  --stage-other: #d1d5db;
+  /* Latency X-ray stages: categorical slots 1-6 in pipeline order, so neighbouring segments
+     are always a validated pair (dataviz validator: CVD ΔE >= 9.1, normal-vision >= 19.6). */
+  --stage-vad: #2a78d6;
+  --stage-upload: #eb6834;
+  --stage-stt: #1baf7a;
+  --stage-llm: #eda100;
+  --stage-sentence: #e87ba4;
+  --stage-tts: #008300;
+  --stage-other: #c9ccd1;
+  /* Stats page series: categorical slots 1 and 2 (validated with the stage palette). */
+  --series-1: #2a78d6;
+  --series-2: #eb6834;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -52,7 +56,16 @@
     --cancelled: #7f1d1d;
     --cancelled-ink: #fee2e2;
     --glow: #115e59;
+    /* Same hues stepped for the dark surface (validated: CVD ΔE >= 8.4, all >= 3:1). */
+    --stage-vad: #3987e5;
+    --stage-upload: #d95926;
+    --stage-stt: #199e70;
+    --stage-llm: #c98500;
+    --stage-sentence: #d55181;
+    --stage-tts: #008300;
     --stage-other: #4b5563;
+    --series-1: #3987e5;
+    --series-2: #d95926;
   }
 }
 

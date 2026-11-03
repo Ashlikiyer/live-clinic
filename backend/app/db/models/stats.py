@@ -22,3 +22,8 @@ class DailyStats(Base):
     # {"vad_wait_ms": 600, "stt_ms": 310, ...}
     stage_medians: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
     outcomes: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
+    # 50 ms histograms ("total_ms", each stage, "stop_ms"), so days combine into exact-to-50-ms
+    # weekly percentiles after the per-turn rows are deleted. See app/stats/latency.py.
+    histograms: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, server_default="{}")
+    # Replies over 2 s: their slowest stage -> count.
+    slow_causes: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, server_default="{}")

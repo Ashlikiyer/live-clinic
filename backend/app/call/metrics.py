@@ -35,6 +35,7 @@ class TurnTiming:
     tts_ms: int | None = None
     first_audio_client_ts: int | None = None
     interrupted: bool = False
+    stop_ms: int | None = None
 
     def upload_ms(self) -> int | None:
         if self.client_start_ts is None or self.received_at is None or self.vad_wait_ms is None:

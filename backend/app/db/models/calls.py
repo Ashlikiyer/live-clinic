@@ -89,6 +89,8 @@ class TurnMetrics(Base):
     first_sentence_ms: Mapped[int | None]
     tts_ms: Mapped[int | None]
     total_ms: Mapped[int | None]
+    # Barge-in only: caller started speaking -> agent audio stopped, measured in the browser.
+    stop_ms: Mapped[int | None]
 
 
 class ToolCall(Base):
