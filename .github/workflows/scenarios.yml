@@ -33,8 +33,8 @@ jobs:
       DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/clinic
       PROVIDER: groq
       GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
-      LLM_MODEL: qwen/qwen3.8-27b
-      LLM_REASONING_EFFORT: none
+      LLM_MODEL: openai/gpt-oss-120b
+      LLM_REASONING_EFFORT: low
       UV_PYTHON: "3.12"
     steps:
       - name: Check for the Groq key

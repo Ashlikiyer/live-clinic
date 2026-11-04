@@ -63,18 +63,19 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--label", default="", help="a note for this run in results.csv")
     parser.add_argument(
         "--caller-model",
-        default=os.environ.get("SCENARIO_CALLER_MODEL", "openai/gpt-oss-20b:low"),
+        default=os.environ.get("SCENARIO_CALLER_MODEL", "qwen/qwen3.8-27b:none"),
         help="model:reasoning_effort for the simulated caller",
     )
     parser.add_argument(
         "--judge-model",
-        default=os.environ.get("SCENARIO_JUDGE_MODEL", "openai/gpt-oss-120b:low"),
+        default=os.environ.get("SCENARIO_JUDGE_MODEL", "qwen/qwen3.8-27b:none"),
         help="model:reasoning_effort for the judge",
     )
     parser.add_argument(
         "--mia-fallbacks",
-        default=os.environ.get("SCENARIO_MIA_FALLBACKS"),
-        help="override Mia's fallback models for the run (default: LLM_FALLBACK_MODELS)",
+        # Qwen plays the caller and the judge, so keep it out of Mia's fallbacks during a run.
+        default=os.environ.get("SCENARIO_MIA_FALLBACKS", "openai/gpt-oss-20b:low"),
+        help="Mia's fallback models during the run (default: gpt-oss-20b only)",
     )
     return parser.parse_args(argv)
 

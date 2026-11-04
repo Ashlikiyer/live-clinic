@@ -16,6 +16,7 @@ async def handle(ctx: ToolContext, args: RescheduleAppointmentArgs) -> ToolResul
     if isinstance(result, Rejection):
         return ToolResult.rejected(result)
     ctx.state.outcome = CallOutcome.RESCHEDULED
+    ctx.state.completed.add(CallOutcome.RESCHEDULED)
     moved = result.appointment
     doctors = await ctx.repo.doctors()
     return ToolResult(

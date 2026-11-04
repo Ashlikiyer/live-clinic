@@ -40,6 +40,7 @@ async def handle(ctx: ToolContext, args: HoldIdArgs) -> ToolResult:
     if isinstance(result, Rejection):
         return ToolResult.rejected(result)
     ctx.state.outcome = CallOutcome.BOOKED
+    ctx.state.completed.add(CallOutcome.BOOKED)
     doctors = await ctx.repo.doctors()
     return ToolResult(
         {

@@ -1,0 +1,3 @@
+run_at,run_label,llm_model,scenario,db_checks,failures,outcome,ended_by,caller_turns,errors,politeness,brevity,one_question,judge_checks,max_sentences,long_replies,multi_question_replies,seconds,judge_notes
+2026-11-04T12:15:01+08:00,phase 4 baseline,qwen/qwen3.8-27b,new_patient_cough,fail,"0 confirmed appointments, expected 1",booked,agent,7,,5,4,5,,4,2,0,125,"One reply exceeds the 3‑sentence limit, reducing brevity."
+2026-11-04T12:15:01+08:00,phase 4 baseline,qwen/qwen3.8-27b,birthday_correction,fail,date of birth isn't marked corrected,info_only,caller,8,,5,4,5,,5,1,0,148,none

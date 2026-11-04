@@ -68,14 +68,15 @@ consult for a cough" to "requested day fully booked".
 - **How a run works:** the backend runs in-process with the real Groq provider and your
   database. Each scenario gets a fresh session and talks over the real WebSocket in text mode
   (`text.message`), so everything except audio is exercised.
-- **The caller** is `openai/gpt-oss-20b` with a persona and a goal. Some scenarios prepare the
+- **The caller** is `qwen/qwen3.8-27b` with a persona and a goal. Some scenarios prepare the
   session first: a seeded patient to reschedule or cancel, or a day filled for every doctor.
 - **Database checks** decide pass or fail: appointments, the intake form (and its "corrected"
   tag), the call outcome and the tool audit rows.
-- **The judge** (`openai/gpt-oss-120b`) then scores politeness, brevity and one question per
+- **The judge** (also Qwen) then scores politeness, brevity and one question per
   turn from 1 to 5, and answers scenario checks such as "Mia gave no medical advice". Simple
   counts done in code (most sentences in a reply, replies with two questions) sit beside the
-  scores.
+  scores. During a run Mia falls back only to `gpt-oss-20b`, so she never competes with the
+  caller and the judge for Qwen's budget.
 - **Results** are appended to `backend/tests/scenarios/results.csv`, one row per scenario, so
   runs before and after a prompt change can be compared. Transcripts go to
   `backend/tests/scenarios/transcripts/` (not committed).
@@ -111,9 +112,15 @@ The first runs turned up real bugs, all fixed with tests:
   there anything else I can help you with?" instead, which also saves a round.
 - **Lost audit rows.** If the LLM failed after a tool had run in that turn (a cancel, a
   booking), the tool's `tool_calls` row was never saved.
-- **A form saved all at once.** Mia sometimes held every detail until the end, so a
-  corrected birthday was never marked "corrected" and the on-screen form didn't fill as the
-  caller spoke. The prompt now asks for each detail to be saved in the same reply.
+- **Tools skipped by the main model.** Qwen (with reasoning off) often talked instead of
+  acting: "Let me check" with no availability check, "Your appointment is set" with nothing
+  booked, and every form detail saved only at the end, so a corrected birthday was never
+  marked "corrected". A probe of the same moments called the right tool 1 time in 4 with
+  Qwen and 4 times in 4 with `gpt-oss-120b`, so Mia's main model is now `gpt-oss-120b`
+  (see the LLM note below).
+- **A call closed as "booked" with no booking.** `end_call` now refuses booked,
+  rescheduled or cancelled unless that change really succeeded in the call
+  (`OUTCOME_NOT_DONE`).
 
 The runner itself is tested with fake providers in normal CI. The real run is in
 `.github/workflows/scenarios.yml`, started by hand from the Actions tab once a `GROQ_API_KEY`
@@ -131,8 +138,8 @@ LLM call with Mia's prompt, the 10 tool schemas and a few turns of history is ab
 - **No wasted rounds.** Once Mia has asked her question, no second LLM round is made after
   the tools.
 - **Model fallback.** When the main model (`LLM_MODEL`) is rate limited, the same request
-  goes to `LLM_FALLBACK_MODELS` (the `gpt-oss` models, each with its own budget). If all of
-  them free up within 4 s, Mia waits instead of failing.
+  goes to `LLM_FALLBACK_MODELS` (`gpt-oss-20b`, then Qwen, each with its own budget). If all
+  of them free up within 4 s, Mia waits instead of failing.
 
 Measured: one call at a natural pace (a turn about every 10 s) fits, including a full
 booking, reschedule and cancel. Quick back-to-back turns, or several calls at once, can
@@ -178,9 +185,11 @@ that the browser serves it from cache.
 - **Clock sync:** the spec's three-message clock-sync handshake isn't implemented. The
   approximate upload stage uses a single offset taken at call start. Total reply time is
   measured entirely in the browser, so it doesn't depend on this.
-- **LLM:** `llama-3.3-70b-versatile` isn't available to this Groq key. `qwen/qwen3.8-27b`
-  with `LLM_REASONING_EFFORT=none` replied fastest (about 370 ms vs about 700 ms for the
-  `gpt-oss` models) and followed Mia's rules best.
+- **LLM:** `llama-3.3-70b-versatile` isn't available to this Groq key. Phase 1 used
+  `qwen/qwen3.8-27b` with reasoning off, the fastest to reply. Once Mia had tools, the
+  scenarios showed Qwen often skipping them, so the main model is now `openai/gpt-oss-120b`
+  with `LLM_REASONING_EFFORT=low`. It called the right tool every time in a probe, for
+  about 0.1-0.3 s more per reply. The Phase 1 latency table above was measured with Qwen.
 - **Extra event fields:** three optional fields extend the spec's protocol so the browser
   can report the stages it measures. `vad_wait_ms` is on the audio header, `tts_ms` is on
   `tts.first_audio`, and `resume_call_id` on `call.start` rejoins a call after a dropped

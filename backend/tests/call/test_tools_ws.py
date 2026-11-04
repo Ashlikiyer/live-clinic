@@ -307,6 +307,23 @@ def test_an_early_goodbye_becomes_anything_else(sql_client: TestClient, llm: Fak
     assert not of_type(events, "call.ended")
 
 
+def test_a_call_cannot_end_as_booked_without_a_booking(
+    sql_client: TestClient, llm: FakeLLM
+) -> None:
+    claim = ("end_call", {"outcome": "booked", "summary": "Booked a consult."})
+    llm.replies = [
+        ToolStep([claim], text="Your appointment is set. Goodbye!"),
+        "Sorry, I haven't booked that yet. Which time would you like?",
+    ]
+    token = new_token(sql_client)
+    with sql_client.websocket_connect(f"/ws/call?token={token}") as ws:
+        start_call(ws)
+        events = say(ws, "Yes, that's all, bye!", 1)
+    assert tool_errors(llm) == ["OUTCOME_NOT_DONE"]
+    assert not of_type(events, "call.ended")
+    assert "haven't booked" in text_of(events, 1)
+
+
 def test_no_transfer_the_caller_did_not_ask_for(sql_client: TestClient, llm: FakeLLM) -> None:
     transfer = {"outcome": "transferred", "summary": "No phone number.", "transfer": True}
     llm.replies = [

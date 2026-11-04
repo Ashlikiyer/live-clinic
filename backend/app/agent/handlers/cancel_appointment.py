@@ -12,6 +12,7 @@ async def handle(ctx: ToolContext, args: CancelAppointmentArgs) -> ToolResult:
     if isinstance(result, Rejection):
         return ToolResult.rejected(result)
     ctx.state.outcome = CallOutcome.CANCELLED
+    ctx.state.completed.add(CallOutcome.CANCELLED)
     return ToolResult(
         {"cancelled": True, "message": "Cancelled. Offer to book a new time."},
         [("calendar.slot_cancelled", {"id": result.id})],

@@ -31,6 +31,9 @@ class CallToolState:
     # Existing appointments find_patient returned: the caller may want to move one.
     found_appointments: list[str] = field(default_factory=list)
     outcome: str | None = None
+    # Booking changes that really succeeded in this call ("booked", "cancelled"...), so the
+    # call can't be closed with an outcome that never happened.
+    completed: set[str] = field(default_factory=set)
     end_request: EndRequest | None = None
     callback_notes: list[str] = field(default_factory=list)
 
