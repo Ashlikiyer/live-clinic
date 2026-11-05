@@ -18,7 +18,7 @@ import {
 
 export type CallKind = "live" | "demo";
 export type MicState = "off" | "starting" | "listening" | "denied" | "unavailable";
-export type VoiceMode = "kokoro" | "lite";
+export type VoiceMode = "orpheus" | "kokoro" | "lite";
 
 /** Live audio/UI state that changes often and is never derived from server events. */
 interface CallUi {

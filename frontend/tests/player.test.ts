@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { SentencePlayer, type Clip, type Playback, type Voice } from "@/voice/player";
 
@@ -164,5 +164,40 @@ describe("SentencePlayer", () => {
     const { player } = setup();
     player.enqueue(1, 0, "Hi.");
     expect(player.stop()).toBeNull();
+  });
+});
+
+describe("SentencePlayer with a failing voice", () => {
+  it("reports a sentence it couldn't synthesize and plays the next one", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const voice = new FakeVoice();
+    const failing: Voice = {
+      mode: "kokoro",
+      prepare: (text) =>
+        text === "Broken." ? Promise.reject(new Error("voice file missing")) : voice.prepare(text),
+      cancelPending: () => undefined,
+    };
+    const player = new SentencePlayer(failing);
+    player.enqueue(1, 0, "Broken.");
+    player.enqueue(1, 1, "This one works.");
+    await tick();
+    voice.ready("This one works.");
+    await tick();
+    expect(voice.current().text).toBe("This one works.");
+    expect(warn).toHaveBeenCalledWith("[voice] couldn't synthesize a sentence: voice file missing");
+    warn.mockRestore();
+  });
+
+  it("stays quiet about sentences cancelled by an interruption", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const cancelled: Voice = {
+      mode: "kokoro",
+      prepare: () => Promise.reject(new Error("cancelled")),
+      cancelPending: () => undefined,
+    };
+    new SentencePlayer(cancelled).enqueue(1, 0, "Gone.");
+    await tick();
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
   });
 });

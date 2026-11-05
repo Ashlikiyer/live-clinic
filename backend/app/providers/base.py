@@ -65,7 +65,18 @@ async def complete_text(llm: LLMProvider, messages: list[ChatMessage]) -> str:
     return "".join(parts)
 
 
+class TTSProvider(Protocol):
+    @property
+    def sample_rate(self) -> int: ...
+
+    def stream(self, text: str) -> AsyncIterator[bytes]:
+        """Stream the speech for `text` as 16-bit mono PCM chunks (whole samples)."""
+        ...
+
+
 @dataclass(frozen=True)
 class Providers:
     stt: STTProvider
     llm: LLMProvider
+    # Server-side speech (Groq Orpheus). None: the browser makes all speech itself.
+    tts: TTSProvider | None = None

@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 
 import { formatDuration } from "@/lib/time";
-import { useCallStore } from "@/store/callStore";
+import { useCallStore, type VoiceMode } from "@/store/callStore";
 
 import { MicMeter } from "./MicMeter";
 import { Orb } from "./Orb";
@@ -62,6 +62,14 @@ function Banner({ tone, children }: { tone: "info" | "warn"; children: React.Rea
   );
 }
 
+
+/** Which voice Mia is speaking with (it can change mid-call if one stops working). */
+const VOICE_BADGE: Record<VoiceMode, { label: string; title: string }> = {
+  orpheus: { label: "natural voice", title: "Groq Orpheus, generated on the server" },
+  kokoro: { label: "in-browser voice", title: "Kokoro, generated on this device" },
+  lite: { label: "built-in voice", title: "Using your browser's built-in voice" },
+};
+
 export function CallPanel({ controls }: { controls: CallControls }) {
   const status = useCallStore((s) => s.status);
   const kind = useCallStore((s) => s.kind);
@@ -95,12 +103,12 @@ export function CallPanel({ controls }: { controls: CallControls }) {
         <div className="min-w-0 flex-1">
           <p className="flex items-center gap-2 font-semibold">
             Mia · Receptionist
-            {voiceMode === "lite" && kind === "live" && (
+            {kind === "live" && (
               <span
                 className="rounded-full bg-surface-muted px-2 py-0.5 text-[10px] font-medium text-ink-muted"
-                title="Using your browser's built-in voice"
+                title={VOICE_BADGE[voiceMode].title}
               >
-                lite voice
+                {VOICE_BADGE[voiceMode].label}
               </span>
             )}
           </p>

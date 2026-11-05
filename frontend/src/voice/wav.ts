@@ -42,6 +42,19 @@ export function buildAudioFrame(header: AudioUtteranceHeader, wav: ArrayBuffer):
   return frame.buffer;
 }
 
+/** Split a binary frame (4-byte big-endian header length + JSON header + payload). */
+export function parseAudioFrame(frame: ArrayBuffer): { header: unknown; payload: ArrayBuffer } | null {
+  if (frame.byteLength < 4) return null;
+  const size = new DataView(frame).getUint32(0, false);
+  if (size === 0 || 4 + size > frame.byteLength) return null;
+  try {
+    const header: unknown = JSON.parse(new TextDecoder().decode(new Uint8Array(frame, 4, size)));
+    return { header, payload: frame.slice(4 + size) };
+  } catch {
+    return null;
+  }
+}
+
 /** Root-mean-square level of a frame, scaled to roughly 0..1 for the mic meter. */
 export function rmsLevel(frame: Float32Array): number {
   if (frame.length === 0) return 0;

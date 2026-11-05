@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { ServerEvent } from "@/realtime/events";
 import { CallSocket, type SocketStatus } from "@/realtime/socket";
+import { buildAudioFrame } from "@/voice/wav";
 
 class FakeWebSocket {
   static instances: FakeWebSocket[] = [];
@@ -129,5 +130,29 @@ describe("CallSocket", () => {
     const connected = socket.connect();
     ws().drop();
     await expect(connected).rejects.toThrow(/Could not connect/);
+  });
+});
+
+describe("CallSocket server speech frames", () => {
+  it("hands binary tts.audio frames to onSpeechAudio and ignores other binary data", async () => {
+    FakeWebSocket.instances = [];
+    const audio: { id: number; bytes: number }[] = [];
+    const socket = new CallSocket({
+      url: "ws://test/ws/call?token=t",
+      onEvent: () => undefined,
+      onSpeechAudio: (header, pcm) => audio.push({ id: header.id, bytes: pcm.byteLength }),
+      WebSocketImpl: FakeWebSocket as unknown as typeof WebSocket,
+    });
+    const connected = socket.connect();
+    const ws = FakeWebSocket.instances.at(-1)!;
+    ws.open();
+    await connected;
+
+    const header = { type: "tts.audio", id: 7, seq: 0, sample_rate: 24_000 };
+    ws.onmessage?.({ data: buildAudioFrame(header as never, new ArrayBuffer(6)) });
+    ws.onmessage?.({ data: new ArrayBuffer(3) }); // not a frame
+    ws.onmessage?.({ data: buildAudioFrame({ type: "audio.utterance", turn_id: 1, speech_end_ts: 0 }, new ArrayBuffer(2)) });
+    expect(audio).toEqual([{ id: 7, bytes: 6 }]);
+    socket.close();
   });
 });

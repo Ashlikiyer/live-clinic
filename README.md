@@ -59,6 +59,40 @@ rules for AI coding assistants are in [CLAUDE.md](CLAUDE.md).
 - **Phase 4 (conversation scenarios):** done. A simulated caller talks to Mia through the
   real Groq models, each call ends with database checks, and an LLM judge scores it. See
   [Conversation scenarios](#conversation-scenarios).
+- **Mia's voice (after Phase 4):** Mia now speaks with Groq's Orpheus voice (`hannah`) by
+  default. See [Mia's voice](#mias-voice).
+
+## Mia's voice
+
+The landing page has a voice switch. The caller's choice is remembered in their browser:
+
+| Choice | Engine | Where it runs | Limits |
+| --- | --- | --- | --- |
+| **Natural** (default) | Groq Orpheus `canopylabs/orpheus-v1-english`, voice `hannah` | Groq's servers, through our backend | 100 requests a day, 1,200 characters a minute (free tier) |
+| **In-browser** | Kokoro `af_nova` | The caller's GPU (WebGPU) | Downloads ~160 MB once; needs a GPU that runs it correctly |
+| **Built-in** | The browser's `speechSynthesis` | The caller's device | None; quality depends on the browser |
+
+- **Why Orpheus is the default:** Kokoro made silent or garbled audio on the developer's
+  laptop and on a recent phone, and the official kokoro-js WebGPU demo sounded the same, so
+  it's a device problem we can't fix from code. Orpheus runs on Groq, so it sounds the same
+  everywhere.
+- **How it works:**
+  - The browser waits for Mia's whole reply, then sends one `tts.request` over the call
+    socket. One request per reply keeps a call to about 10 of the 100 daily requests.
+  - The backend checks the text is something Mia said in this call, or one of her fixed lines.
+    Otherwise the socket would be a free text-to-speech service.
+  - The backend streams Groq's audio back as binary `tts.audio` frames (16-bit PCM), then
+    `tts.done`. Playback starts at the first chunk, about 0.4-0.7 s after the request.
+- **Saved lines:** the greeting, recovery lines and the "Let me check that." filler are kept
+  in the backend's memory after their first request, so they cost nothing afterwards (until
+  the backend restarts).
+- **When Orpheus can't speak:** if the daily limit runs out or Groq fails, the backend sends
+  `tts.failed`, and Mia switches to the built-in voice for the rest of the call. She's never
+  silent. The badge next to her name shows the voice in use.
+- **Kokoro, when chosen:** it now checks its own output. If WebGPU produces silence or noise
+  in half precision, it tries full precision on the GPU, then the CPU. If those are too slow
+  or broken too, the built-in voice takes over. Its download only starts when "In-browser" is
+  picked.
 
 ## Conversation scenarios
 
@@ -194,6 +228,12 @@ that the browser serves it from cache.
   can report the stages it measures. `vad_wait_ms` is on the audio header, `tts_ms` is on
   `tts.first_audio`, and `resume_call_id` on `call.start` rejoins a call after a dropped
   connection.
+- **Server speech (an addition to the spec):** the spec runs all speech in the browser. Mia's
+  default voice is now Groq Orpheus, asked for by the browser with `tts.request {id, text}`
+  and answered with binary `tts.audio` frames, then `tts.done {id, chunks}` or
+  `tts.failed {id, code, message}`. The server runs no audio model; Groq does, the same way
+  it does for Whisper. Also added: `call.start` accepts `voice: "orpheus"` (migration `0004`
+  allows it in `calls.voice_mode`), and a `TTS_FAILED` error code.
 - **Cross-origin isolation:** the frontend sends `Cross-Origin-Opener-Policy` and
   `Cross-Origin-Embedder-Policy: credentialless` headers, which let the Kokoro worker use
   multi-threaded WebAssembly.

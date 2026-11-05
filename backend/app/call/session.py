@@ -19,10 +19,12 @@ from app.agent.prompt import GREETING, LLM_RECOVERY_LINE, RECONNECT_LINE, TIME_L
 from app.call.interrupt import History
 from app.call.metrics import TurnTiming, call_stats
 from app.call.sentences import split_sentences
+from app.call.speech import MAX_SPEECH_REQUESTS_PER_CALL, speech_allowed
 from app.call.turn import run_turn
 from app.core.config import Settings
 from app.core.errors import ErrorCode
-from app.providers.base import Providers
+from app.providers.base import ProviderError, Providers
+from app.providers.tts_cache import FIXED_LINES
 from app.repositories.booking import BookingRepository
 from app.repositories.calls import CallStore, SessionInfo
 from app.repositories.clinic import ClinicInfoRepository
@@ -32,7 +34,9 @@ from app.schemas.events import (
     CallStart,
     TextMessage,
     TtsFirstAudio,
+    TtsRequest,
     UserInterrupt,
+    build_audio_frame,
     now_ms,
     parse_audio_frame,
     parse_client_event,
@@ -90,6 +94,8 @@ class CallSession:
         self.started_monotonic = time.monotonic()
         self.ended = False
         self.outcome: str | None = None
+        self.voice = "kokoro"
+        self.speech_requests = 0
 
         self._send_lock = asyncio.Lock()
         self._current: asyncio.Task[None] | None = None
@@ -98,6 +104,8 @@ class CallSession:
         self._db_worker: asyncio.Task[None] | None = None
         self._time_limit: asyncio.Task[None] | None = None
         self._background: set[asyncio.Task[None]] = set()
+        # Speech streams from Groq; stopped when the call ends so they don't use up the quota.
+        self._speech: set[asyncio.Task[None]] = set()
 
     # ---------- plumbing ----------
 
@@ -107,6 +115,13 @@ class CallSession:
         async with self._send_lock:
             with contextlib.suppress(RuntimeError, WebSocketDisconnect):
                 await self.ws.send_json(server_event(type_, **payload))
+
+    async def send_bytes(self, frame: bytes) -> None:
+        if self.ended:
+            return
+        async with self._send_lock:
+            with contextlib.suppress(RuntimeError, WebSocketDisconnect):
+                await self.ws.send_bytes(frame)
 
     async def send_error(self, code: ErrorCode, message: str, retryable: bool) -> None:
         await self.send("error", code=code.value, message=message, retryable=retryable)
@@ -165,6 +180,8 @@ class CallSession:
                 await self._cancel_current()
                 if self._time_limit:
                     self._time_limit.cancel()
+                for task in list(self._speech):
+                    task.cancel()
                 await self._flush_db()
 
     async def _on_text(self, raw: str) -> None:
@@ -178,6 +195,8 @@ class CallSession:
         elif isinstance(event, TextMessage):
             timing = TurnTiming(turn_id=-1, client_start_ts=event.ts, received_at=now_ms())
             await self._start_turn(None, text=event.text.strip(), wav=None, timing=timing)
+        elif isinstance(event, TtsRequest):
+            await self._on_speech_request(event)
         elif isinstance(event, UserInterrupt):
             await self._on_interrupt(event)
         elif isinstance(event, TtsFirstAudio):
@@ -213,6 +232,7 @@ class CallSession:
             return
         if event.ts is not None:
             self.clock_offset_ms = now_ms() - event.ts
+        self.voice = event.voice
 
         resumed = False
         if event.resume_call_id:
@@ -293,6 +313,46 @@ class CallSession:
             self._time_limit.cancel()
         with contextlib.suppress(RuntimeError):
             await self.ws.close()
+
+    # ---------- server-side speech (Groq Orpheus) ----------
+
+    async def _on_speech_request(self, event: TtsRequest) -> None:
+        tts = self.providers.tts
+        said = [e.text for e in self.history.entries if e.role == "assistant"]
+        if tts is None or self.voice != "orpheus":
+            reason = (ErrorCode.TTS_FAILED, "Server speech isn't on for this call.")
+        elif self.speech_requests >= MAX_SPEECH_REQUESTS_PER_CALL:
+            reason = (ErrorCode.RATE_LIMITED, "Too many speech requests for one call.")
+        elif not speech_allowed(event.text, said, FIXED_LINES):
+            reason = (ErrorCode.TTS_FAILED, "Only Mia's own lines can be spoken.")
+        else:
+            self.speech_requests += 1
+            task = asyncio.create_task(self._stream_speech(event.id, event.text))
+            self._speech.add(task)
+            task.add_done_callback(self._speech.discard)
+            return
+        await self.send("tts.failed", id=event.id, code=reason[0].value, message=reason[1])
+
+    async def _stream_speech(self, request_id: int, text: str) -> None:
+        """Stream Orpheus PCM as binary `tts.audio` frames, then `tts.done` (or `tts.failed`)."""
+        tts = self.providers.tts
+        assert tts is not None
+        seq = 0
+        try:
+            async for chunk in tts.stream(text):
+                header = {
+                    "type": "tts.audio",
+                    "id": request_id,
+                    "seq": seq,
+                    "sample_rate": tts.sample_rate,
+                }
+                await self.send_bytes(build_audio_frame(header, chunk))
+                seq += 1
+        except ProviderError as exc:
+            log.warning("Speech failed: %s", exc)
+            await self.send("tts.failed", id=request_id, code=exc.code.value, message=exc.message)
+            return
+        await self.send("tts.done", id=request_id, chunks=seq)
 
     # ---------- turns ----------
 

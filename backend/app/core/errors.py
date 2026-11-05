@@ -10,6 +10,8 @@ class ErrorCode(StrEnum):
     # Call errors (WebSocket `error` events), from the spec.
     STT_FAILED = "STT_FAILED"
     LLM_FAILED = "LLM_FAILED"
+    # Groq Orpheus speech failed (an addition to the spec's codes; see the README).
+    TTS_FAILED = "TTS_FAILED"
     TOOL_FAILED = "TOOL_FAILED"
     RATE_LIMITED = "RATE_LIMITED"
     SESSION_EXPIRED = "SESSION_EXPIRED"

@@ -3,8 +3,8 @@
  * and one automatic reconnect within 5 s if the connection drops unexpectedly.
  */
 
-import type { AudioUtteranceHeader, ClientEvent, ServerEvent } from "./events";
-import { buildAudioFrame } from "@/voice/wav";
+import type { AudioUtteranceHeader, ClientEvent, ServerEvent, TtsAudioHeader } from "./events";
+import { buildAudioFrame, parseAudioFrame } from "@/voice/wav";
 
 type WithoutTs<T> = T extends unknown ? Omit<T, "ts"> : never;
 export type OutgoingEvent = WithoutTs<ClientEvent>;
@@ -14,6 +14,8 @@ export type SocketStatus = "connecting" | "open" | "reconnecting" | "closed" | "
 export interface SocketOptions {
   url: string;
   onEvent: (event: ServerEvent) => void;
+  /** Binary `tts.audio` frames (server speech). */
+  onSpeechAudio?: (header: TtsAudioHeader, pcm: ArrayBuffer) => void;
   onStatus?: (status: SocketStatus) => void;
   /** Called after a successful reconnect, so the caller can resume the call. */
   onReconnected?: () => void;
@@ -67,6 +69,14 @@ export class CallSocket {
         resolve();
       };
       ws.onmessage = (message: MessageEvent) => {
+        if (message.data instanceof ArrayBuffer) {
+          const frame = parseAudioFrame(message.data);
+          const header = frame?.header as Partial<TtsAudioHeader> | undefined;
+          if (frame && header?.type === "tts.audio" && typeof header.id === "number") {
+            this.options.onSpeechAudio?.(header as TtsAudioHeader, frame.payload);
+          }
+          return;
+        }
         if (typeof message.data !== "string") return;
         try {
           const event = JSON.parse(message.data) as ServerEvent;

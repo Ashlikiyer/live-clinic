@@ -18,9 +18,14 @@ export interface Clip {
   play: () => Playback;
 }
 
-/** A speech engine: Kokoro in the browser, or the built-in speechSynthesis "lite" voice. */
+/**
+ * A speech engine: Groq Orpheus (through the server), Kokoro in the browser, or the built-in
+ * speechSynthesis "lite" voice.
+ */
 export interface Voice {
-  readonly mode: "kokoro" | "lite";
+  readonly mode: "orpheus" | "kokoro" | "lite";
+  /** Speaks a whole reply per request (server speech has a daily request budget). */
+  readonly wholeTurns?: boolean;
   prepare: (text: string) => Promise<Clip>;
   /** Drop queued synthesis work (after an interruption). */
   cancelPending?: () => void;
@@ -46,6 +51,13 @@ export interface PlayerCallbacks {
   /** First audio of a turn started; `ttsMs` counts from the first sentence's arrival. */
   onFirstAudio?: (turnId: number, ttsMs: number) => void;
   onIdle?: () => void;
+}
+
+/** A sentence that couldn't be synthesized is skipped; say why (a cancel is expected). */
+function logVoiceFailure(error: unknown): null {
+  const message = error instanceof Error ? error.message : String(error);
+  if (message !== "cancelled") console.warn(`[voice] couldn't synthesize a sentence: ${message}`);
+  return null;
 }
 
 export class SentencePlayer {
@@ -95,9 +107,9 @@ export class SentencePlayer {
     this.firstSentenceAt ??= this.now();
     // Speaking starts with the turn, not the audio, so barge-in works between sentences too.
     this.setSpeaking(true);
-    const pieces = speechChunks(text, index === 0);
+    const pieces = this.voice.wholeTurns ? [text] : speechChunks(text, index === 0);
     pieces.forEach((piece, part) => {
-      const clip = this.voice.prepare(piece).catch(() => null);
+      const clip = this.voice.prepare(piece).catch(logVoiceFailure);
       this.queue.push({ index, part, last: part === pieces.length - 1, text: piece, clip });
     });
     this.queue.sort((a, b) => a.index - b.index || a.part - b.part);
@@ -111,7 +123,7 @@ export class SentencePlayer {
    */
   async sayAside(text: string): Promise<boolean> {
     if (this.current || this.aside) return false;
-    const clip = await this.voice.prepare(text).catch(() => null);
+    const clip = await this.voice.prepare(text).catch(logVoiceFailure);
     if (!clip || this.current || this.aside) return false;
     const playback = clip.play();
     this.aside = playback;

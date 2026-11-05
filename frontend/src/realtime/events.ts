@@ -109,6 +109,10 @@ export type ServerEvent =
     >
   | Event<"call.transferring", { reason: string }>
   | Event<"call.ended", { outcome: CallOutcome; summary: string; stats: CallStats }>
+  // Server speech (Groq Orpheus), an addition to the spec. Audio arrives as binary frames
+  // (TtsAudioHeader + PCM) before tts.done; tts.failed means "use another voice".
+  | Event<"tts.done", { id: number; chunks: number }>
+  | Event<"tts.failed", { id: number; code: string; message: string }>
   | Event<"error", { code: ErrorCode; message: string; retryable: boolean }>;
 
 export type ServerEventType = ServerEvent["type"];
@@ -117,7 +121,11 @@ export type ServerEventOf<T extends ServerEventType> = Extract<ServerEvent, { ty
 // ---------- Client -> server ----------
 
 export type ClientEvent =
-  | Event<"call.start", { voice: "kokoro" | "lite"; captions: boolean; resume_call_id?: string }>
+  | Event<
+      "call.start",
+      { voice: "orpheus" | "kokoro" | "lite"; captions: boolean; resume_call_id?: string }
+    >
+  | Event<"tts.request", { id: number; text: string }>
   | Event<"text.message", { text: string }>
   | Event<
       "user.interrupt",
@@ -127,6 +135,14 @@ export type ClientEvent =
   | Event<"tts.first_audio", { turn_id: number; tts_ms?: number }>
   | Event<"call.end", { reason: "user" | "silence" }>
   | Event<"ping">;
+
+/** Header of a server speech frame: 4-byte header length + this JSON + 16-bit PCM. */
+export interface TtsAudioHeader {
+  type: "tts.audio";
+  id: number;
+  seq: number;
+  sample_rate: number;
+}
 
 /** JSON header of a binary audio frame: 4-byte header length + this JSON + WAV bytes. */
 export interface AudioUtteranceHeader {

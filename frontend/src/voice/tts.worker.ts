@@ -12,6 +12,8 @@ import {
   KOKORO_MODEL,
   KOKORO_VOICE,
   WASM_BACKEND,
+  backendsToTry,
+  isAudible,
   type KokoroBackend,
   type WorkerIn,
   type WorkerOut,
@@ -87,29 +89,44 @@ async function loadWith(backend: KokoroBackend): Promise<KokoroTTS> {
   return KokoroTTS.from_pretrained(KOKORO_MODEL, { ...backend, progress_callback: reportProgress });
 }
 
+/** Warm up, then time two runs and keep the faster (early runs compile kernels/shaders).
+ * Returns the real-time factor, or null if the output isn't audible speech. */
+async function benchmark(engine: KokoroTTS): Promise<number | null> {
+  await engine.generate("Hi.", { voice: KOKORO_VOICE });
+  let rtf = Infinity;
+  for (let run = 0; run < 2; run++) {
+    const started = performance.now();
+    const sample = await engine.generate(BENCH_TEXT, { voice: KOKORO_VOICE });
+    if (!isAudible(sample.audio as Float32Array)) return null;
+    const audioMs = (sample.audio.length / sample.sampling_rate) * 1000;
+    rtf = Math.min(rtf, (performance.now() - started) / audioMs);
+  }
+  return rtf;
+}
+
 async function load(): Promise<void> {
-  try {
-    let backend = await preferredBackend();
+  // Try each backend until one loads and makes audible speech (see backendsToTry).
+  const problems: string[] = [];
+  for (const backend of backendsToTry(await preferredBackend())) {
+    const label = `${backend.device} ${backend.dtype}`;
     try {
       tts = await loadWith(backend);
+      const rtf = await benchmark(tts);
+      if (rtf === null) {
+        problems.push(`${label} made silent audio`);
+        continue;
+      }
+      const note = problems.length
+        ? `${problems.join("; ")}, so the voice runs on ${label}`
+        : undefined;
+      post({ type: "ready", device: backend.device, rtf, note });
+      return;
     } catch (error) {
-      if (backend.device === "wasm") throw error;
-      backend = WASM_BACKEND;
-      tts = await loadWith(backend);
+      problems.push(`${label} failed to load (${String(error)})`);
     }
-    // Warm-up: early generations compile kernels/shaders, so time two runs and keep the faster.
-    await tts.generate("Hi.", { voice: KOKORO_VOICE });
-    let rtf = Infinity;
-    for (let run = 0; run < 2; run++) {
-      const started = performance.now();
-      const sample = await tts.generate(BENCH_TEXT, { voice: KOKORO_VOICE });
-      const audioMs = (sample.audio.length / sample.sampling_rate) * 1000;
-      rtf = Math.min(rtf, (performance.now() - started) / audioMs);
-    }
-    post({ type: "ready", device: backend.device, rtf });
-  } catch (error) {
-    post({ type: "error", message: String(error) });
   }
+  tts = null;
+  post({ type: "error", message: problems.join("; ") || "Kokoro couldn't load" });
 }
 
 const isStale = (gen: number) => gen !== KEEP_GENERATION && gen < minGeneration;
@@ -126,6 +143,10 @@ async function synth(id: number, text: string, gen: number): Promise<void> {
       return;
     }
     const audio = result.audio as Float32Array;
+    if (!isAudible(audio)) {
+      post({ type: "failed", id, message: `silent audio for "${text.slice(0, 40)}"` });
+      return;
+    }
     post({ type: "audio", id, audio, sampleRate: result.sampling_rate }, [audio.buffer]);
   } catch (error) {
     post({ type: "failed", id, message: String(error) });

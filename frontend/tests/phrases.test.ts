@@ -1,7 +1,15 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
-import { GREETING_SENTENCES, RECOVERY_SENTENCES, phraseKey, precachePieces } from "@/voice/phrases";
+import {
+  FILLER_LINE,
+  GREETING_SENTENCES,
+  NUDGE_LINE,
+  RECOVERY_SENTENCES,
+  SILENCE_GOODBYE_LINE,
+  phraseKey,
+  precachePieces,
+} from "@/voice/phrases";
 import { speechChunks } from "@/voice/turnTaking";
 
 /** Read a Python string constant (possibly built from adjacent literals) from prompt.py. */
@@ -22,6 +30,12 @@ describe("pre-generated phrases", () => {
     expect(RECOVERY_SENTENCES.slice(0, 2).join(" ")).toBe(pythonConstant("STT_RECOVERY_LINE"));
     expect(RECOVERY_SENTENCES.slice(2, 4).join(" ")).toBe(pythonConstant("LLM_RECOVERY_LINE"));
     expect(RECOVERY_SENTENCES.slice(4, 6).join(" ")).toBe(pythonConstant("RECONNECT_LINE"));
+  });
+
+  it("include the browser's own lines, so the server will speak (and cache) them", () => {
+    expect(FILLER_LINE).toBe(pythonConstant("FILLER_LINE"));
+    expect(NUDGE_LINE).toBe(pythonConstant("NUDGE_LINE"));
+    expect(SILENCE_GOODBYE_LINE).toBe(pythonConstant("SILENCE_GOODBYE_LINE"));
   });
 
   it("are cached as the exact pieces the player asks for", () => {

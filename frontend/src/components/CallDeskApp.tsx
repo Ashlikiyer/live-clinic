@@ -13,16 +13,21 @@ import { setCalendarSource } from "@/realtime/calendarSource";
 import { LiveCall } from "@/realtime/liveCall";
 import { useCallStore } from "@/store/callStore";
 import { latestConfirmed } from "@/store/reducer";
-import type { Voice } from "@/voice/player";
-import { LiteVoice, getAudioContext, kokoroPreferred, loadKokoro } from "@/voice/tts";
+import { DEFAULT_VOICE, planVoice, type VoiceChoice } from "@/voice/choice";
+import { LiteVoice, getAudioContext, kokoroState, loadKokoro } from "@/voice/tts";
 
-/**
- * Kokoro if it has loaded and this device can synthesize faster than real time; otherwise the
- * zero-download lite voice, so the call starts now and stays responsive.
- */
-async function pickVoice(useKokoro: boolean): Promise<Voice> {
-  if (useKokoro || !LiteVoice.available()) return loadKokoro();
-  return new LiteVoice();
+/** Start a call with the chosen voice (see planVoice for the fallbacks). */
+async function newLiveCall(choice: VoiceChoice): Promise<LiveCall> {
+  const plan = planVoice(choice, kokoroState(), LiteVoice.available());
+  if (plan.kind === "orpheus") return new LiveCall("orpheus");
+  if (plan.kind === "kokoro") {
+    try {
+      return new LiveCall(await loadKokoro());
+    } catch {
+      return new LiveCall("orpheus"); // Kokoro can't run and there's no built-in voice
+    }
+  }
+  return new LiveCall(new LiteVoice(), { waitForKokoro: plan.waitForKokoro });
 }
 
 export function CallDeskApp() {
@@ -30,6 +35,7 @@ export function CallDeskApp() {
   const kind = useCallStore((s) => s.kind);
   const live = useRef<LiveCall | null>(null);
   const stopDemo = useRef<(() => void) | null>(null);
+  const lastVoice = useRef<VoiceChoice>(DEFAULT_VOICE);
 
   const stopAll = useCallback(() => {
     live.current?.dispose();
@@ -39,11 +45,12 @@ export function CallDeskApp() {
   }, []);
 
   const startLive = useCallback(
-    async (useKokoro: boolean) => {
+    async (choice: VoiceChoice) => {
+      lastVoice.current = choice;
       stopAll();
       // Create the audio context inside the click so the browser allows playback.
       getAudioContext();
-      const call = new LiveCall(await pickVoice(useKokoro));
+      const call = await newLiveCall(choice);
       live.current = call;
       await call.start();
     },
@@ -93,7 +100,7 @@ export function CallDeskApp() {
   return (
     <MotionConfig reducedMotion="user">
       {status === "idle" ? (
-        <Landing onCall={(ready) => void startLive(ready)} onDemo={startDemo} />
+        <Landing onCall={(choice) => void startLive(choice)} onDemo={startDemo} />
       ) : (
         <>
           <CallDesk controls={controls} />
@@ -102,7 +109,7 @@ export function CallDeskApp() {
               onCallAgain={() => {
                 backToStart();
                 if (kind === "demo") startDemo();
-                else void startLive(kokoroPreferred());
+                else void startLive(lastVoice.current);
               }}
               onClose={backToStart}
             />

@@ -1,10 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 
 import { API_URL } from "@/lib/api";
 import { CLINIC_NAME } from "@/lib/clinic";
+import { DEFAULT_VOICE, VOICE_CHOICES, parseVoiceChoice, type VoiceChoice } from "@/voice/choice";
 import { loadKokoro, onKokoroStatus, type KokoroStatus } from "@/voice/tts";
+
+const VOICE_KEY = "mia-voice";
 
 type BackendState = "waking" | "ready" | "offline";
 
@@ -26,15 +29,51 @@ function useBackendWake(): BackendState {
   return state;
 }
 
-/** Starts downloading and warming up the Kokoro voice right away (cached after the first visit). */
-function useVoiceModel(): KokoroStatus {
+/** Downloads and warms up Kokoro only when it's the chosen voice (cached after the first time). */
+function useVoiceModel(enabled: boolean): KokoroStatus {
   const [status, setStatus] = useState<KokoroStatus>({ state: "loading", progress: 0 });
   useEffect(() => {
+    if (!enabled) return;
     const unsubscribe = onKokoroStatus(setStatus);
     loadKokoro().catch(() => undefined);
     return unsubscribe;
-  }, []);
+  }, [enabled]);
   return status;
+}
+
+// The caller's voice choice, remembered in this browser. Kept in memory too, so choosing still
+// works when storage is blocked.
+let chosenVoice: VoiceChoice | null = null;
+const voiceListeners = new Set<() => void>();
+
+function readVoiceChoice(): VoiceChoice {
+  if (chosenVoice) return chosenVoice;
+  try {
+    return parseVoiceChoice(localStorage.getItem(VOICE_KEY));
+  } catch {
+    return DEFAULT_VOICE;
+  }
+}
+
+function useVoiceChoice(): [VoiceChoice, (choice: VoiceChoice) => void] {
+  const choice = useSyncExternalStore(
+    (listener) => {
+      voiceListeners.add(listener);
+      return () => voiceListeners.delete(listener);
+    },
+    readVoiceChoice,
+    () => DEFAULT_VOICE,
+  );
+  const choose = (next: VoiceChoice) => {
+    chosenVoice = next;
+    try {
+      localStorage.setItem(VOICE_KEY, next);
+    } catch {
+      // Storage blocked: the choice lasts until the page closes.
+    }
+    voiceListeners.forEach((listener) => listener());
+  };
+  return [choice, choose];
 }
 
 const BACKEND_LABEL: Record<BackendState, string> = {
@@ -47,12 +86,12 @@ export function Landing({
   onCall,
   onDemo,
 }: {
-  onCall: (useKokoro: boolean) => void;
+  onCall: (voice: VoiceChoice) => void;
   onDemo: () => void;
 }) {
   const backend = useBackendWake();
-  const voice = useVoiceModel();
-  const useKokoro = voice.state === "ready" && !voice.tooSlow; // same rule as kokoroPreferred()
+  const [choice, setChoice] = useVoiceChoice();
+  const voice = useVoiceModel(choice === "kokoro");
 
   return (
     <main className="flex flex-1 items-center justify-center px-4 py-12">
@@ -68,7 +107,7 @@ export function Landing({
 
         <button
           type="button"
-          onClick={() => onCall(useKokoro)}
+          onClick={() => onCall(choice)}
           disabled={backend === "offline"}
           className="mt-8 inline-flex w-full items-center justify-center gap-2 rounded-full bg-brand px-8 py-4 text-lg font-semibold text-brand-ink shadow-sm transition hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand disabled:opacity-50 sm:w-auto"
         >
@@ -82,8 +121,35 @@ export function Landing({
           or watch a scripted demo call
         </button>
 
-        <div className="mt-6 text-left" aria-live="polite">
-          {voice.state === "loading" && (
+        <fieldset className="mt-6 text-left">
+          <legend className="text-xs font-medium text-ink-muted">Mia&apos;s voice</legend>
+          <div className="mt-1.5 grid grid-cols-3 gap-1 rounded-full bg-surface-muted p-1">
+            {VOICE_CHOICES.map((option) => (
+              <label
+                key={option.value}
+                className={`cursor-pointer rounded-full px-2 py-1.5 text-center text-sm font-medium transition has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-brand ${
+                  choice === option.value ? "bg-surface text-ink shadow-sm" : "text-ink-muted hover:text-ink"
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="voice"
+                  value={option.value}
+                  checked={choice === option.value}
+                  onChange={() => setChoice(option.value)}
+                  className="sr-only"
+                />
+                {option.label}
+              </label>
+            ))}
+          </div>
+          <p className="mt-1.5 text-[11px] text-ink-muted">
+            {VOICE_CHOICES.find((option) => option.value === choice)?.hint}
+          </p>
+        </fieldset>
+
+        <div className="mt-4 text-left" aria-live="polite">
+          {choice === "kokoro" && voice.state === "loading" && (
             <>
               <div className="flex justify-between text-xs text-ink-muted">
                 <span>Loading Mia&apos;s voice (first visit only)</span>
@@ -100,16 +166,16 @@ export function Landing({
               </p>
             </>
           )}
-          {voice.state === "ready" && voice.tooSlow && (
+          {choice === "kokoro" && voice.state === "ready" && voice.tooSlow && (
             <p className="text-xs text-ink-muted">
-              This device is a bit slow for Mia&apos;s natural voice, so she&apos;ll use your
-              browser&apos;s built-in voice to keep replies quick.
+              This device is a bit slow for the in-browser voice, so Mia will use your
+              browser&apos;s built-in voice. Pick &ldquo;Natural&rdquo; for a human-sounding voice.
             </p>
           )}
-          {voice.state === "failed" && (
+          {choice === "kokoro" && voice.state === "failed" && (
             <p className="text-xs text-ink-muted">
-              Mia&apos;s natural voice couldn&apos;t load on this device, so she&apos;ll use your
-              browser&apos;s built-in voice.
+              The in-browser voice couldn&apos;t run on this device, so Mia will use your
+              browser&apos;s built-in voice. Pick &ldquo;Natural&rdquo; for a human-sounding voice.
             </p>
           )}
         </div>

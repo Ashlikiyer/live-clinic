@@ -45,7 +45,7 @@ class Call(Base):
     __tablename__ = "calls"
     __table_args__ = (
         CheckConstraint(f"outcome IS NULL OR {in_values('outcome', CallOutcome)}", name="outcome"),
-        CheckConstraint("voice_mode IN ('kokoro', 'lite')", name="voice_mode"),
+        CheckConstraint("voice_mode IN ('kokoro', 'lite', 'orpheus')", name="voice_mode"),
     )
 
     id: Mapped[uuid.UUID] = _uuid_pk()

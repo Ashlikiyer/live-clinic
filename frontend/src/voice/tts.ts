@@ -3,6 +3,7 @@
  * zero download). Kokoro loads once per page and is warmed up before the first call.
  */
 
+import type { KokoroState } from "./choice";
 import { phraseKey, precachePieces } from "./phrases";
 import type { Clip, Playback, Voice } from "./player";
 import { KEEP_GENERATION, type KokoroBackend, type WorkerIn, type WorkerOut } from "./ttsProtocol";
@@ -31,6 +32,8 @@ function bufferClip(samples: Float32Array, sampleRate: number): Clip {
   return {
     play(): Playback {
       const ctx = getAudioContext();
+      // A suspended context (autoplay rules, a dev hot reload) would "play" in silence.
+      if (ctx.state === "suspended") void ctx.resume().catch(() => undefined);
       const buffer = ctx.createBuffer(1, samples.length, sampleRate);
       buffer.copyToChannel(new Float32Array(samples), 0);
       const source = ctx.createBufferSource();
@@ -144,6 +147,7 @@ export function loadKokoro(): Promise<Voice> {
         voice.precache(precachePieces());
         emit({ state: "ready", device: msg.device, rtf: msg.rtf, tooSlow: msg.rtf > MAX_KOKORO_RTF });
         console.info(`[voice] Kokoro on ${msg.device}, ${msg.rtf.toFixed(2)}x real time`);
+        if (msg.note) console.warn(`[voice] ${msg.note}`);
         resolve(voice);
       } else if (msg.type === "error") {
         emit({ state: "failed", message: msg.message });
@@ -157,6 +161,13 @@ export function loadKokoro(): Promise<Voice> {
     worker.postMessage({ type: "load" } satisfies WorkerIn);
   });
   return kokoro;
+}
+
+/** Kokoro's state for planVoice: "idle" until something asks for it. */
+export function kokoroState(): KokoroState {
+  if (kokoro === null) return "idle";
+  if (lastStatus.state === "ready") return lastStatus.tooSlow ? "too_slow" : "ready";
+  return lastStatus.state;
 }
 
 /** Use Kokoro for the next call? Only once loaded, and only if this device keeps up. */
@@ -174,6 +185,47 @@ export function onKokoroStatus(listener: (s: KokoroStatus) => void): () => void 
 
 const LITE_MS_PER_CHAR = 65;
 
+/** What pickLiteVoice needs from a browser voice (a SpeechSynthesisVoice fits). */
+export interface VoiceInfo {
+  name: string;
+  lang: string;
+}
+
+// Neural voices (Edge's "Microsoft Aria Online (Natural)") sound close to human; the plain
+// system voices sound robotic. Mia is a woman, so known male voices are never picked.
+// Google's voices in Chrome are network voices too, far less robotic than Windows' local ones.
+const NATURAL = /natural|online|neural|premium|enhanced|google/i;
+const FEMALE =
+  /\b(aria|jenny|ava|emma|michelle|ana|sonia|libby|natasha|clara|samantha|zira|susan|hazel|karen|moira|tessa|victoria|female)\b|google us english/i;
+const MALE =
+  /\b(david|mark|guy|andrew|brian|christopher|eric|roger|steffan|ryan|william|george|james|daniel|alex|fred|tom|male)\b/i;
+
+/** The most natural English female voice on this device, or null to use the default. */
+export function pickLiteVoice<V extends VoiceInfo>(voices: readonly V[]): V | null {
+  let best: V | null = null;
+  let bestScore = -Infinity;
+  for (const voice of voices) {
+    if (!voice.lang.toLowerCase().startsWith("en") || MALE.test(voice.name)) continue;
+    const score =
+      (NATURAL.test(voice.name) ? 100 : 0) +
+      (FEMALE.test(voice.name) ? 50 : 0) +
+      (voice.lang.toLowerCase() === "en-us" ? 10 : 0);
+    if (score > bestScore) {
+      best = voice;
+      bestScore = score;
+    }
+  }
+  return best;
+}
+
+let loggedLiteVoice = "";
+
+function logLiteVoice(name: string): void {
+  if (name === loggedLiteVoice) return;
+  loggedLiteVoice = name;
+  console.info(`[voice] built-in voice: ${name}`);
+}
+
 export class LiteVoice implements Voice {
   readonly mode = "lite";
 
@@ -181,17 +233,33 @@ export class LiteVoice implements Voice {
     return typeof window !== "undefined" && "speechSynthesis" in window;
   }
 
+  constructor() {
+    // Some browsers fill the voice list asynchronously; asking early starts that.
+    if (LiteVoice.available()) window.speechSynthesis.getVoices();
+  }
+
   async prepare(text: string): Promise<Clip> {
     return {
       play: (): Playback => {
         const utterance = new SpeechSynthesisUtterance(text);
         utterance.lang = "en-US";
+        const voice = pickLiteVoice(window.speechSynthesis.getVoices());
+        logLiteVoice(voice?.name ?? "browser default");
+        if (voice) {
+          utterance.voice = voice;
+          utterance.lang = voice.lang;
+        }
         utterance.rate = 1.05;
         let spokenChars = 0;
         let resolve!: () => void;
         const ended = new Promise<void>((r) => (resolve = r));
         utterance.onend = () => resolve();
-        utterance.onerror = () => resolve();
+        utterance.onerror = (e) => {
+          if (e.error !== "interrupted" && e.error !== "canceled") {
+            console.warn(`[voice] built-in voice failed: ${e.error}`);
+          }
+          resolve();
+        };
         utterance.onboundary = (e) => (spokenChars = e.charIndex);
         const startedAt = performance.now();
         window.speechSynthesis.speak(utterance);

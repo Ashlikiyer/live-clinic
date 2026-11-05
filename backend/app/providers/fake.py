@@ -74,3 +74,22 @@ class FakeLLM:
             for n, (name, args) in enumerate(step.calls):
                 resolved = args(messages) if callable(args) else args
                 yield ToolCallRequest(f"fake_{len(self.calls)}_{n}", name, json.dumps(resolved))
+
+
+@dataclass
+class FakeTTS:
+    """Speech for tests: 10 ms of silence per character, in two chunks. Records each request."""
+
+    fail: bool = False
+    sample_rate: int = 24_000
+    requests: list[str] = field(default_factory=list)
+
+    async def stream(self, text: str) -> AsyncIterator[bytes]:
+        self.requests.append(text)
+        if self.fail:
+            raise ProviderError(ErrorCode.RATE_LIMITED, "Busy right now, try again in a minute.")
+        pcm = bytes(2 * self.sample_rate // 100 * len(text))
+        half = len(pcm) // 2 - (len(pcm) // 2) % 2
+        for chunk in (pcm[:half], pcm[half:]):
+            if chunk:
+                yield chunk

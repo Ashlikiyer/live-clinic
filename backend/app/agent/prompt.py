@@ -19,6 +19,12 @@ TIME_LIMIT_LINE = (
     "Clinic. Goodbye!"
 )
 
+# Lines the browser itself says (frontend/src/voice/phrases.ts; a frontend test keeps them in
+# sync). The server may speak them for the browser with Groq Orpheus.
+FILLER_LINE = "Let me check that."
+NUDGE_LINE = "Are you still there?"
+SILENCE_GOODBYE_LINE = "I'll let you go for now. Thanks for calling. Goodbye!"
+
 _BASE = """You are Mia, the voice receptionist for Bayview Family Clinic.
 You are speaking on a live call. Today is {weekday}, {date}, {time} (Asia/Manila).
 

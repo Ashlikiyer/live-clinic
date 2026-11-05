@@ -17,6 +17,9 @@ class Settings(BaseSettings):
     # Tried in order when LLM_MODEL is rate limited: "model:reasoning_effort,model:...".
     llm_fallback_models: str = ""
     stt_model: str = "whisper-large-v3-turbo"
+    # Mia's voice when the browser asks the server for speech (Groq Orpheus).
+    tts_model: str = "canopylabs/orpheus-v1-english"
+    tts_voice: str = "hannah"
     frontend_origin: str = "http://localhost:3000"
     session_secret: str = "dev-only-session-secret-change-me"
     cron_secret: str = "dev-only-cron-secret"

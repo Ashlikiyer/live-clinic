@@ -183,6 +183,8 @@ export function applyServerEvent(state: CallData, event: ServerEvent): CallData 
 
     case "agent.sentence":
     case "agent.text.done":
+    case "tts.done": // server speech: handled by the voice, not the screen
+    case "tts.failed":
       // Consumed by the voice player; the transcript is built from deltas.
       return state;
 

@@ -3,6 +3,8 @@
 Names follow the spec. Two optional fields extend the spec so the browser can report its own
 stage timings: `vad_wait_ms` on the audio header and `tts_ms` on `tts.first_audio`.
 `call.start` may carry `resume_call_id` to rejoin a call after a dropped connection.
+`tts.request` (with `voice: "orpheus"`) asks the server to speak one of Mia's lines with Groq
+Orpheus; the audio comes back as binary `tts.audio` frames, then `tts.done` or `tts.failed`.
 """
 
 import json
@@ -17,6 +19,7 @@ MAX_UTTERANCE_SECONDS = 30
 # 16 kHz * 16-bit mono * 30 s, plus a little room for the WAV header.
 MAX_UTTERANCE_BYTES = 16_000 * 2 * MAX_UTTERANCE_SECONDS + 1024
 MAX_AUDIO_HEADER_BYTES = 4096
+MAX_TTS_CHARS = 1000
 
 
 def now_ms() -> int:
@@ -29,7 +32,7 @@ class _ClientEvent(BaseModel):
 
 class CallStart(_ClientEvent):
     type: Literal["call.start"]
-    voice: Literal["kokoro", "lite"] = "kokoro"
+    voice: Literal["kokoro", "lite", "orpheus"] = "kokoro"
     captions: bool = False
     resume_call_id: str | None = None
 
@@ -37,6 +40,13 @@ class CallStart(_ClientEvent):
 class TextMessage(_ClientEvent):
     type: Literal["text.message"]
     text: Annotated[str, Field(min_length=1, max_length=MAX_TYPED_CHARS)]
+
+
+class TtsRequest(_ClientEvent):
+    type: Literal["tts.request"]
+    # Chosen by the browser, echoed on every reply frame for this request.
+    id: Annotated[int, Field(ge=0)]
+    text: Annotated[str, Field(min_length=1, max_length=MAX_TTS_CHARS)]
 
 
 class UserInterrupt(_ClientEvent):
@@ -66,7 +76,7 @@ class Ping(_ClientEvent):
 
 
 ClientEvent = Annotated[
-    CallStart | TextMessage | UserInterrupt | TtsFirstAudio | CallEnd | Ping,
+    CallStart | TextMessage | TtsRequest | UserInterrupt | TtsFirstAudio | CallEnd | Ping,
     Field(discriminator="type"),
 ]
 _client_event_adapter: TypeAdapter[ClientEvent] = TypeAdapter(ClientEvent)
@@ -111,7 +121,7 @@ def parse_audio_frame(frame: bytes) -> tuple[AudioHeader, bytes]:
 
 
 def build_audio_frame(header: dict[str, Any], wav: bytes) -> bytes:
-    """Inverse of parse_audio_frame (used by tests and scripts)."""
+    """Inverse of parse_audio_frame. Also frames the server's `tts.audio` PCM chunks."""
     encoded = json.dumps(header).encode()
     return struct.pack(">I", len(encoded)) + encoded + wav
 

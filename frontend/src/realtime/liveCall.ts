@@ -7,10 +7,17 @@
 import { ApiError, callSocketUrl, fetchClinic, forgetSession, getSessionToken } from "@/lib/api";
 import { callStats } from "@/lib/stats";
 import { useCallStore } from "@/store/callStore";
+import { FallbackVoice, OrpheusVoice } from "@/voice/orpheus";
 import { FILLER_LINE, NUDGE_LINE, SILENCE_GOODBYE_LINE } from "@/voice/phrases";
 import { SentencePlayer, type Voice } from "@/voice/player";
-import { LiteVoice, resumeAudio } from "@/voice/tts";
-import { BARGE_IN_MIN_MS, SlowVoiceDetector, shouldSendUtterance, type Utterance } from "@/voice/turnTaking";
+import { LiteVoice, kokoroPreferred, loadKokoro, resumeAudio } from "@/voice/tts";
+import {
+  BARGE_IN_MIN_MS,
+  SlowVoiceDetector,
+  shouldSendUtterance,
+  shouldSwitchToKokoro,
+  type Utterance,
+} from "@/voice/turnTaking";
 import { MicError, startMic, type Mic, type SpeechEndInfo } from "@/voice/vad";
 import { encodeWav } from "@/voice/wav";
 
@@ -47,8 +54,35 @@ export class LiveCall {
   private fillerTimer: ReturnType<typeof setTimeout> | null = null;
   private silenceTimer: ReturnType<typeof setTimeout> | null = null;
   private nudged = false;
+  /** Kokoro, once it has loaded, for a call that started on the lite voice while it loaded. */
+  private upgrade: Voice | null = null;
+  /** The device proved too slow for Kokoro mid-call: stay on the lite voice. */
+  private downgraded = false;
+  /** Server speech (Groq Orpheus), when that's the chosen voice. */
+  private readonly orpheus: OrpheusVoice | null = null;
+  /** Reply sentences gathered per turn, for voices that speak a whole reply at once. */
+  private replyText = new Map<number, string[]>();
+  private voice: Voice;
 
-  constructor(private voice: Voice) {
+  /**
+   * `choice` is a ready voice, or "orpheus" for server speech (with the browser voice as the
+   * backup). `waitForKokoro`: the caller chose Kokoro but it was still loading, so the call
+   * starts on the lite voice and moves to Kokoro once it's ready.
+   */
+  constructor(choice: Voice | "orpheus", { waitForKokoro = false } = {}) {
+    if (choice === "orpheus") {
+      const orpheus = new OrpheusVoice((id, text) =>
+        this.socket?.send({ type: "tts.request", id, text }),
+      );
+      this.orpheus = orpheus;
+      this.voice = new FallbackVoice(orpheus, new LiteVoice(), (reason) => {
+        console.warn(`[voice] Groq Orpheus unavailable (${reason}); using the built-in voice`);
+        store().setVoiceMode("lite");
+      });
+    } else {
+      this.voice = choice;
+    }
+    const voice = this.voice;
     this.player = new SentencePlayer(voice, {
       onSpeakingChange: (speaking) => {
         store().setAgentSpeaking(speaking);
@@ -57,6 +91,15 @@ export class LiveCall {
       },
       onFirstAudio: (turnId, ttsMs) => this.onFirstAudio(turnId, ttsMs),
     });
+    if (waitForKokoro && voice.mode === "lite" && typeof Worker !== "undefined") {
+      // The landing page lets the caller start before Kokoro is ready; switch over once it is.
+      loadKokoro().then(
+        (kokoro) => {
+          if (kokoroPreferred()) this.upgrade = kokoro;
+        },
+        () => undefined, // Kokoro can't load here: the lite voice stays.
+      );
+    }
   }
 
   async start(): Promise<void> {
@@ -98,6 +141,7 @@ export class LiveCall {
     this.socket = new CallSocket({
       url: callSocketUrl(token),
       onEvent: (event) => this.onEvent(event),
+      onSpeechAudio: (header, pcm) => this.orpheus?.onAudio(header.id, header.sample_rate, pcm),
       onStatus: (status) => {
         store().setConnection(status);
         if (status === "lost") this.endLocally("abandoned", "The connection to the clinic was lost.");
@@ -118,6 +162,7 @@ export class LiveCall {
     if (!trimmed || this.finished) return;
     if (this.player.isSpeaking) this.bargeIn();
     this.callerActive();
+    this.switchToLoadedKokoro();
     store().beginTurn(store().currentTurnId + 1);
     this.socket?.send({ type: "text.message", text: trimmed });
   }
@@ -173,13 +218,29 @@ export class LiveCall {
         break;
       case "agent.sentence":
         this.clearFiller();
-        if (event.turn_id >= store().currentTurnId) {
+        if (event.turn_id < store().currentTurnId) break;
+        if (this.voice.wholeTurns) {
+          // One speech request per reply: gather the sentences until the reply is done.
+          this.replyText.set(event.turn_id, [...(this.replyText.get(event.turn_id) ?? []), event.text]);
+        } else {
           this.player.enqueue(event.turn_id, event.index, event.text);
         }
         break;
-      case "agent.text.done":
+      case "agent.text.done": {
         this.clearFiller();
+        const reply = this.replyText.get(event.turn_id);
+        this.replyText.delete(event.turn_id);
+        if (reply && event.turn_id >= store().currentTurnId) {
+          this.player.enqueue(event.turn_id, 0, reply.join(" "));
+        }
         this.player.markDone(event.turn_id);
+        break;
+      }
+      case "tts.done":
+        this.orpheus?.onDone(event.id);
+        break;
+      case "tts.failed":
+        this.orpheus?.onFailed(event.id, event.code, event.message);
         break;
       case "error": {
         const notice = ERROR_NOTICES[event.code];
@@ -226,6 +287,7 @@ export class LiveCall {
     if (this.finished || store().muted || !shouldSendUtterance(utterance)) return;
     // Mia may have started talking mid-utterance: the caller's words win.
     if (this.player.isSpeaking) this.bargeIn();
+    this.switchToLoadedKokoro();
 
     const turnId = store().currentTurnId + 1;
     store().beginTurn(turnId);
@@ -313,10 +375,30 @@ export class LiveCall {
   private onFirstAudio(turnId: number, ttsMs: number): void {
     this.socket?.send({ type: "tts.first_audio", turn_id: turnId, tts_ms: ttsMs });
     if (this.slowVoice.record(ttsMs) && this.voice.mode === "kokoro" && LiteVoice.available()) {
+      this.downgraded = true;
       this.voice = new LiteVoice();
       this.player.setVoice(this.voice);
       store().setVoiceMode("lite");
     }
+  }
+
+  /**
+   * Between replies (the caller just finished a turn, so Mia is silent), move a call that
+   * started on the lite voice over to Kokoro once it has loaded. Never mid-reply, so one reply
+   * never mixes two voices, and never after the device proved too slow for Kokoro.
+   */
+  private switchToLoadedKokoro(): void {
+    const ready = shouldSwitchToKokoro({
+      kokoroReady: this.upgrade !== null,
+      downgraded: this.downgraded,
+      mode: this.voice.mode,
+      speaking: this.player.isSpeaking,
+    });
+    if (!ready || !this.upgrade) return;
+    this.voice = this.upgrade;
+    this.upgrade = null;
+    this.player.setVoice(this.voice);
+    store().setVoiceMode("kokoro");
   }
 
   // ---------- ending ----------

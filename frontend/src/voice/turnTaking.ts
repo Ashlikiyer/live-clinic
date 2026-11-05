@@ -47,6 +47,19 @@ export class SlowVoiceDetector {
   }
 }
 
+/**
+ * Move a call that started on the lite voice (Kokoro was still loading) over to Kokoro? Only
+ * once Kokoro is ready, only between replies, and never after the device proved too slow.
+ */
+export function shouldSwitchToKokoro(state: {
+  kokoroReady: boolean;
+  downgraded: boolean;
+  mode: "orpheus" | "kokoro" | "lite";
+  speaking: boolean;
+}): boolean {
+  return state.kokoroReady && !state.downgraded && state.mode === "lite" && !state.speaking;
+}
+
 const MAX_LEAD_CHARS = 40;
 const MIN_REST_CHARS = 12;
 
