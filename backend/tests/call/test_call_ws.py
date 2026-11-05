@@ -8,6 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.agent.prompt import GREETING, LLM_RECOVERY_LINE, RECONNECT_LINE, STT_RECOVERY_LINE
+from app.call.emergency import EMERGENCY_REPLY_TL
 from app.core.config import get_settings
 from app.providers.fake import FakeLLM, FakeSTT
 from app.repositories.calls import MemoryCallStore
@@ -115,6 +116,17 @@ def test_emergency_overrides_the_llm_and_ends_the_call(
     assert events[-1]["outcome"] == "emergency_advised"
     assert llm.calls == []
     wait_for(lambda: any(c["outcome"] == "emergency_advised" for c in store.calls.values()))
+
+
+def test_a_tagalog_emergency_gets_the_advice_in_tagalog(client: TestClient, llm: FakeLLM) -> None:
+    token = new_token(client)
+    with client.websocket_connect(f"/ws/call?token={token}") as ws:
+        start_call(ws)
+        ws.send_json({"type": "text.message", "text": "Masakit po ang dibdib ko", "ts": 1})
+        events = receive_until(ws, "call.ended")
+    assert text_of(events, 1) == EMERGENCY_REPLY_TL
+    assert events[-1]["outcome"] == "emergency_advised"
+    assert llm.calls == []
 
 
 def test_barge_in_keeps_only_played_text(

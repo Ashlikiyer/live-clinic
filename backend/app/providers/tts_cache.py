@@ -19,7 +19,7 @@ from app.agent.prompt import (
     STT_RECOVERY_LINE,
     TIME_LIMIT_LINE,
 )
-from app.call.emergency import EMERGENCY_REPLY
+from app.call.emergency import EMERGENCY_REPLY, EMERGENCY_REPLY_TL
 from app.providers.base import TTSProvider
 
 FIXED_LINES = frozenset(
@@ -33,6 +33,7 @@ FIXED_LINES = frozenset(
         GIVE_UP_LINE,
         TIME_LIMIT_LINE,
         EMERGENCY_REPLY,
+        EMERGENCY_REPLY_TL,
         FILLER_LINE,
         NUDGE_LINE,
         SILENCE_GOODBYE_LINE,

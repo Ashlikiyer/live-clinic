@@ -40,13 +40,29 @@ _YES_PHRASES = (
     "oo",
     "opo",
     "sige",
+    # More Tagalog: "tama" (right), "ayos" (fine), "pwede" (that works), "tuloy" (go ahead).
+    "tama",
+    "tama po",
+    "ayos",
+    "ayos lang",
+    "pwede",
+    "pwede po",
+    "tuloy",
+    "ituloy",
+    "ituloy mo",
+    "i-book mo na",
+    "book mo na",
+    "kumpirmado",
 )
 
 # Anything that signals doubt, refusal or a change of plan.
 _NO_WORDS = re.compile(
     # Not "cancel": confirming a cancellation ("yes, cancel it") is a yes.
     r"\b(no|nope|nah|not|don'?t|wait|hold on|actually|instead|change|different|"
-    r"other|another|but|hindi|wag|huwag)\b"
+    r"other|another|but|hindi|wag|huwag|"
+    # Tagalog doubt: ayoko/ayaw (don't want), teka/sandali (wait), pero (but), iba (another),
+    # palitan (change), mamaya (later).
+    r"ayoko|ayaw|teka|sandali|pero|iba|palitan|mamaya)\b"
 )
 
 _MAX_WORDS = 10
@@ -85,7 +101,9 @@ CONFIRM_CHECK_PROMPT = (
 
 _CLOSING = re.compile(
     r"\b(bye|goodbye|that'?s all|that is all|that'?s it|nothing else|no thanks|no thank you|"
-    r"i'?m good|i'?m done|all set|have a (good|nice) (day|one)|salamat)\b"
+    r"i'?m good|i'?m done|all set|have a (good|nice) (day|one)|salamat|"
+    # Tagalog: paalam (goodbye), "yun lang" / "wala na" (that's all), "ok na ako" (I'm good).
+    r"paalam|yun lang|iyon lang|wala na|ok na ako|okay na ako|ayos na)\b"
 )
 
 
@@ -99,9 +117,13 @@ _PERSON = (
     r"(person|human|someone|somebody|staff|agent|representative|receptionist|manager|"
     r"operator|doctor|nurse|billing|front desk)"
 )
+# Tagalog: "kausapin ang tao/staff", "may totoong tao ba", "ipasa mo ako", "ikonek mo ako".
+_TAO = r"(tao|staff|doktor|doctor|nurse|receptionist|billing|manager)"
 _WANTS_PERSON = re.compile(
     rf"\b((speak|talk|chat) (to|with) {_PERSON}|transfer|connect me|put me through|"
-    rf"real person|human|operator)"
+    rf"real person|human|operator|"
+    rf"(kausapin|makausap|kakausapin) (ang |si |yung |ng |isang |)(totoong |)?{_TAO}|"
+    rf"totoong tao|may tao ba|ipasa mo|ikonek mo|i-connect mo|ilipat mo)"
 )
 
 

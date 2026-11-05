@@ -32,6 +32,12 @@ def test_prompt_states_date_and_preview_limits() -> None:
     assert "Tue 2026-11-17" in with_tools
 
 
+def test_prompt_asks_mia_to_reply_in_the_callers_language() -> None:
+    prompt = build_system_prompt(datetime(2026, 11, 3, 14, 5, tzinfo=ZoneInfo("Asia/Manila")))
+    assert "reply in the language the caller uses" in prompt
+    assert "Taglish" in prompt and '"po"' in prompt
+
+
 # ---------- metrics ----------
 
 

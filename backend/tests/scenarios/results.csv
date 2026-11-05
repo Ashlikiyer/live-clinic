@@ -1,3 +1,5 @@
 run_at,run_label,llm_model,scenario,db_checks,failures,outcome,ended_by,caller_turns,errors,politeness,brevity,one_question,judge_checks,max_sentences,long_replies,multi_question_replies,seconds,judge_notes
 2026-11-04T12:15:01+08:00,phase 4 baseline,qwen/qwen3.8-27b,new_patient_cough,fail,"0 confirmed appointments, expected 1",booked,agent,7,,5,4,5,,4,2,0,125,"One reply exceeds the 3‑sentence limit, reducing brevity."
 2026-11-04T12:15:01+08:00,phase 4 baseline,qwen/qwen3.8-27b,birthday_correction,fail,date of birth isn't marked corrected,info_only,caller,8,,5,4,5,,5,1,0,148,none
+2026-11-05T15:33:01+08:00,taglish support,openai/gpt-oss-120b,tagalog_chest_pain,pass,,emergency_advised,agent,1,,5,5,5,,4,1,0,23,none
+2026-11-05T15:33:01+08:00,taglish support,openai/gpt-oss-120b,taglish_booking,fail,"0 confirmed appointments, expected 1; form is missing full_name, date_of_birth, phone, reason; outcome is 'info_only', expected booked; stopped: the caller model stayed rate limited (Groq free tier)",info_only,rate_limited,2,LLM_FAILED,,,,0/1,2,0,0,38,LLM_FAILED: Reply failed: 

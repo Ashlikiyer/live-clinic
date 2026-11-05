@@ -17,6 +17,8 @@ class Settings(BaseSettings):
     # Tried in order when LLM_MODEL is rate limited: "model:reasoning_effort,model:...".
     llm_fallback_models: str = ""
     stt_model: str = "whisper-large-v3-turbo"
+    # Whisper language code ("en", "tl"); empty detects it per utterance (English or Tagalog).
+    stt_language: str = ""
     # Mia's voice when the browser asks the server for speech (Groq Orpheus).
     tts_model: str = "canopylabs/orpheus-v1-english"
     tts_voice: str = "hannah"

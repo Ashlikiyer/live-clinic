@@ -22,6 +22,11 @@ from app.call.confirm import (
         "Sige",
         "Yes, cancel it",
         "Please move it",
+        "Opo, sige po",
+        "Oo, tama",
+        "Sige, i-book mo na",
+        "Ayos lang po",
+        "Pwede po",
     ],
 )
 def test_clear_yes(text: str) -> None:
@@ -41,6 +46,12 @@ def test_clear_yes(text: str) -> None:
         "Hold on, let me check",
         "Is that with Dr. Reyes?",
         "No, cancel it",
+        "Hindi po",
+        "Teka lang",
+        "Ayoko po ng umaga",
+        "Sige, pero sa hapon na lang",
+        "Iba na lang pong araw",
+        "Anong oras po ulit?",
     ],
 )
 def test_not_a_yes(text: str) -> None:
@@ -69,6 +80,10 @@ def test_unclear_goes_to_the_llm_check(text: str) -> None:
         ("Yes, please.", False),
         ("Maybe Thursday instead?", False),
         ("Okay, thank you", False),
+        ("Yun lang po, salamat!", True),
+        ("Wala na po, paalam", True),
+        ("Ok na ako, thank you", True),
+        ("Sige po, sa Biyernes na lang", False),
     ],
 )
 def test_goodbye_detection(text: str, done: bool) -> None:
@@ -86,6 +101,10 @@ def test_goodbye_detection(text: str, done: bool) -> None:
         ("March 3, 1990.", False),
         ("I'd like to book a consult for a cough.", False),
         ("Can I speak Tagalog?", False),
+        ("Pwede ko po bang kausapin ang staff tungkol sa billing?", True),
+        ("May totoong tao ba diyan?", True),
+        ("Pakiconnect po ako, ipasa mo na lang ako sa front desk", True),
+        ("Gusto ko pong magpa-book bukas", False),
     ],
 )
 def test_asks_for_a_person(text: str, asks: bool) -> None:

@@ -22,7 +22,7 @@ from app.agent.prompt import (
     build_system_prompt,
 )
 from app.agent.tools import tool_specs
-from app.call.emergency import EMERGENCY_REPLY, detect_emergency
+from app.call.emergency import detect_emergency, emergency_reply
 from app.call.sentences import MetaTextFilter, SentenceSplitter, is_question
 from app.providers.base import ChatMessage, ProviderError, ToolCallRequest
 from app.schemas.events import now_ms
@@ -63,7 +63,7 @@ async def run_turn(
     category = detect_emergency(text)
     if category is not None:
         call.outcome = "emergency_advised"
-        await call.speak(EMERGENCY_REPLY, turn_id)
+        await call.speak(emergency_reply(text), turn_id)
         await call.end(
             "emergency_advised",
             f"The caller described possible emergency signs ({category.replace('_', ' ')}) "

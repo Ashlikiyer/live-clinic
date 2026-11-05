@@ -15,7 +15,7 @@ def build_providers(settings: Settings, client: httpx.AsyncClient) -> Providers:
     if not settings.groq_api_key or not settings.llm_model:
         raise RuntimeError("PROVIDER=groq needs GROQ_API_KEY and LLM_MODEL in the environment.")
     return Providers(
-        stt=GroqSTT(client, settings.groq_api_key, settings.stt_model),
+        stt=GroqSTT(client, settings.groq_api_key, settings.stt_model, settings.stt_language),
         llm=GroqLLM(
             client,
             settings.groq_api_key,

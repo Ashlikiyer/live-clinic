@@ -7,6 +7,7 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+from app.call.emergency import EMERGENCY_REPLY, EMERGENCY_REPLY_TL
 from app.providers.fake import FakeLLM
 from tests.scenarios.caller import HANGUP, caller_messages, caller_reply, clean_caller_line
 from tests.scenarios.judge import Judgement, parse_judgement, style_stats
@@ -23,6 +24,7 @@ from tests.scenarios.scenarios import (
     check_full_day,
     check_mind_change,
     check_new_patient,
+    check_tagalog_emergency,
     open_day_after,
 )
 
@@ -204,6 +206,13 @@ def test_emergency_needs_the_outcome_911_and_no_held_slot() -> None:
     assert len(check_emergency(held, {})) == 2
 
 
+def test_tagalog_emergency_needs_the_advice_in_tagalog() -> None:
+    tagalog = record(outcome="emergency_advised", transcript=[Line("mia", EMERGENCY_REPLY_TL)])
+    assert check_tagalog_emergency(tagalog, {}) == []
+    english = record(outcome="emergency_advised", transcript=[Line("mia", EMERGENCY_REPLY)])
+    assert check_tagalog_emergency(english, {}) == ["the emergency advice wasn't in Tagalog"]
+
+
 def test_full_day_needs_the_nearest_day_offered_and_no_booking_on_the_full_day() -> None:
     facts = {
         "filler_ids": ["f1"],
@@ -226,7 +235,8 @@ def test_open_day_after_skips_sunday() -> None:
 
 
 def test_every_spec_scenario_is_defined_once() -> None:
-    assert len(SCENARIOS) == 11 == len(BY_NAME)
+    # The spec's 11, plus the Taglish booking and the Tagalog emergency.
+    assert len(SCENARIOS) == 13 == len(BY_NAME)
     for s in SCENARIOS:
         assert s.persona and s.goal and s.title
 

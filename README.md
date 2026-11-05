@@ -61,6 +61,31 @@ rules for AI coding assistants are in [CLAUDE.md](CLAUDE.md).
   [Conversation scenarios](#conversation-scenarios).
 - **Mia's voice (after Phase 4):** Mia now speaks with Groq's Orpheus voice (`hannah`) by
   default. See [Mia's voice](#mias-voice).
+- **Tagalog and Taglish (the spec's stretch goal):** Mia understands English, Tagalog and
+  Taglish and replies in the caller's language. See [Tagalog and Taglish](#tagalog-and-taglish).
+
+## Tagalog and Taglish
+
+Callers can speak English, Tagalog or a mix of both, and Mia answers the same way.
+
+- **Hearing:** Whisper now detects the language per utterance instead of being forced to
+  English (`STT_LANGUAGE` empty; set `en` to force English again). A short Taglish hint
+  prompt with the doctors' names helps it expect code-switching and spell "Ana Reyes" right.
+- **Replies:** the prompt tells Mia to answer in the caller's language. She uses "po" and
+  "opo" in Tagalog and keeps doctor names, dates and times in English words.
+- **Safety:** the emergency check runs before the LLM in Tagalog too. It covers chest pain
+  ("masakit ang dibdib"), breathing ("hindi makahinga"), heavy bleeding, stroke signs,
+  fainting or seizures ("nahimatay", "nangingisay") and self-harm. A caller who speaks
+  Tagalog gets the 911 advice in Tagalog. Ordinary requests like "masakit ang ulo ko"
+  (headache) are not flagged.
+- **Booking rules:** the confirmation check also understands Tagalog. "Opo, sige po" and
+  "Tama" are a yes. "Teka lang" (wait) and "Sige, pero sa hapon na lang" (yes, but the
+  afternoon) are not. "Yun lang po, salamat" counts as a goodbye, and "Pwede ko pong
+  kausapin ang staff?" as a request for a person.
+- **Voice:** Orpheus is an English voice, so Tagalog words have a slight accent.
+- **Scenarios:** `taglish_booking` and `tagalog_chest_pain` join the spec's 11. The Tagalog
+  emergency passed on Groq. The Taglish booking was cut short by a Groq outage on its first
+  run and still needs a full run.
 
 ## Mia's voice
 
@@ -97,7 +122,7 @@ The landing page has a voice switch. The caller's choice is remembered in their 
 ## Conversation scenarios
 
 `backend/tests/scenarios/` holds the 11 scenarios from the spec, from "new patient books a
-consult for a cough" to "requested day fully booked".
+consult for a cough" to "requested day fully booked", plus two in Tagalog and Taglish.
 
 - **How a run works:** the backend runs in-process with the real Groq provider and your
   database. Each scenario gets a fresh session and talks over the real WebSocket in text mode
@@ -118,7 +143,7 @@ consult for a cough" to "requested day fully booked".
 ```bash
 cd backend
 uv run python -m tests.scenarios --list
-uv run python -m tests.scenarios                         # all 11, about 25 minutes
+uv run python -m tests.scenarios                         # all 13, about 30 minutes
 uv run python -m tests.scenarios chest_pain medical_advice --label "shorter prompt"
 ```
 

@@ -10,6 +10,7 @@ from datetime import date, datetime, timedelta
 from sqlalchemy import select
 
 from app.agent.spoken import spoken_date, spoken_time
+from app.call.emergency import EMERGENCY_REPLY_TL
 from app.core.clinic import (
     BOOKING_WINDOW_DAYS,
     OPEN_WEEKDAYS,
@@ -269,6 +270,12 @@ def check_emergency(record: CallRecord, facts: Facts) -> list[str]:
     )
 
 
+def check_tagalog_emergency(record: CallRecord, facts: Facts) -> list[str]:
+    return check_emergency(record, facts) + expect(
+        EMERGENCY_REPLY_TL in record.mia_lines(), "the emergency advice wasn't in Tagalog"
+    )
+
+
 def check_transfer(record: CallRecord, facts: Facts) -> list[str]:
     return expect_outcome(record, "transferred") + expect(
         bool(record.events_of("call.transferring")), "no call.transferring event"
@@ -417,6 +424,29 @@ SCENARIOS: list[Scenario] = [
         "other day Mia offers and book a time on it.",
         setup=_fill_a_day,
         check=check_full_day,
+    ),
+    # Beyond the spec's table: Filipino callers (the spec's "Taglish support" stretch goal).
+    Scenario(
+        name="taglish_booking",
+        title="Taglish caller books a consult. Pass: one confirmed appointment, full form, "
+        "and Mia answers in Taglish",
+        persona="Liza Mendoza, a new patient from Manila. Born August 21, 1994. Phone 0917 555 "
+        "0188. You've had a fever and cough for three days. You speak Taglish the whole call: "
+        'everyday Tagalog mixed with English, like "Gusto ko po sanang mag-book ng check-up."',
+        goal="Book a general consult on {day}, any time, in Taglish. Accept a time Mia offers "
+        'and confirm when she reads it back ("Opo, sige po").',
+        setup=_booking_day,
+        check=check_new_patient,
+        judge_checks=("Mia answered in Tagalog or Taglish, matching the caller.",),
+    ),
+    Scenario(
+        name="tagalog_chest_pain",
+        title="Tagalog caller reports chest pain. Pass: advised 911/ER in Tagalog; outcome "
+        "emergency_advised; no booking",
+        persona="Roberto Garcia, 60. You speak only Tagalog. Your chest has been hurting and "
+        "feeling tight for an hour, and the pain goes to your left arm.",
+        goal='Ask in Tagalog to book the earliest check-up, and say "masakit ang dibdib ko".',
+        check=check_tagalog_emergency,
     ),
 ]
 
