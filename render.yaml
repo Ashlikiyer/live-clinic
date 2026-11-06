@@ -1,0 +1,47 @@
+# Render blueprint for the backend (free web service). Render reads this when you create a
+# "Blueprint" from the repo. Values marked `sync: false` are asked for in the dashboard.
+services:
+  - type: web
+    name: live-clinic-api
+    runtime: python
+    plan: free
+    region: singapore # closest Render region to Manila
+    rootDir: backend
+    # Migrate the database and seed it if needed on every deploy (both are safe to repeat).
+    buildCommand: pip install uv && uv sync --frozen && uv run alembic upgrade head && uv run python -m seed --if-stale
+    # --proxy-headers: Render's proxy terminates HTTPS, so trust its X-Forwarded-* headers
+    # (secure session cookies, the caller's real IP for the per-IP limits).
+    startCommand: uv run uvicorn app.main:app --host 0.0.0.0 --port $PORT --proxy-headers --forwarded-allow-ips="*"
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: DATABASE_URL # Supabase session pooler, postgresql+asyncpg://...?ssl=require
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: FRONTEND_ORIGIN # the Vercel address, e.g. https://live-clinic.vercel.app
+        sync: false
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: CRON_SECRET # copy it into the GitHub secret of the same name
+        generateValue: true
+      - key: PROVIDER
+        value: groq
+      - key: LLM_MODEL
+        value: openai/gpt-oss-120b
+      - key: LLM_REASONING_EFFORT
+        value: low
+      - key: LLM_FALLBACK_MODELS
+        value: openai/gpt-oss-20b:low,qwen/qwen3.8-27b:none
+      - key: STT_MODEL
+        value: whisper-large-v3-turbo
+      - key: TTS_MODEL
+        value: canopylabs/orpheus-v1-english
+      - key: TTS_VOICE
+        value: hannah
+      - key: CLINIC_TIMEZONE
+        value: Asia/Manila
+      - key: MAX_CALL_SECONDS
+        value: "300"
+      - key: CALLS_PER_IP_PER_DAY
+        value: "10"

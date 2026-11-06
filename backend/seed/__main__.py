@@ -2,16 +2,19 @@
 
 Re-running replaces all seed rows. Seeded appointments cover the past week and the next
 three weeks from today, so re-run it to keep the calendar looking busy.
+`uv run python -m seed --if-stale` only seeds when the schedule no longer covers the booking
+window (the deploy build and the daily cleanup use this).
 """
 
 import asyncio
+import sys
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import delete, insert, select
+from sqlalchemy import delete, func, insert, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.clinic import PEDIATRICS_DOCTOR_ID
+from app.core.clinic import BOOKING_WINDOW_DAYS, PEDIATRICS_DOCTOR_ID
 from app.core.config import get_settings
 from app.db.models import ClinicInfo, Doctor, SeedAppointment, SeedPatient
 from app.db.session import get_engine, get_sessionmaker
@@ -69,12 +72,25 @@ async def seed(db: AsyncSession) -> dict[str, int]:
     }
 
 
-async def main() -> None:
+async def seed_if_stale(db: AsyncSession, now: datetime) -> bool:
+    """Seed when there is no schedule, or it ends before the booking window does."""
+    last = await db.scalar(select(func.max(SeedAppointment.start)))
+    if last is not None and last >= now + timedelta(days=BOOKING_WINDOW_DAYS):
+        return False
+    await seed(db)
+    return True
+
+
+async def main(if_stale: bool) -> None:
     async with get_sessionmaker()() as db:
-        counts = await seed(db)
+        if if_stale:
+            now = datetime.now(ZoneInfo(get_settings().clinic_timezone))
+            print("Seeded." if await seed_if_stale(db, now) else "Seed is current; nothing to do.")
+        else:
+            counts = await seed(db)
+            print("Seeded:", ", ".join(f"{k}={v}" for k, v in counts.items()))
     await get_engine().dispose()
-    print("Seeded:", ", ".join(f"{k}={v}" for k, v in counts.items()))
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    asyncio.run(main(if_stale="--if-stale" in sys.argv[1:]))

@@ -339,6 +339,24 @@ cd frontend
 npm run lint && npm run typecheck && npm test && npm run build
 ```
 
+## Deployment (free tiers)
+
+- **Database: Supabase.** Use the **Session pooler** connection string (IPv4, port 5432), in
+  the form `postgresql+asyncpg://postgres.<project-ref>:<password>@<host>:5432/postgres?ssl=require`.
+  URL-encode the password if it has special characters.
+- **Backend: Render**, from `render.yaml` (New → Blueprint). Every deploy runs
+  `alembic upgrade head` and `python -m seed --if-stale`, so the database is migrated and
+  seeded with no manual step. Fill in `DATABASE_URL`, `GROQ_API_KEY` and `FRONTEND_ORIGIN`
+  (the Vercel address). `SESSION_SECRET` and `CRON_SECRET` are generated.
+- **Frontend: Vercel**, root directory `frontend`, with `NEXT_PUBLIC_API_URL=https://<render-app>.onrender.com`
+  and `NEXT_PUBLIC_WS_URL=wss://<render-app>.onrender.com`.
+- **Nightly job: GitHub.** Add repository secrets `API_URL` (the Render address) and
+  `CRON_SECRET` (copied from Render). Besides cleaning up, the job re-seeds the shared
+  schedule when it no longer covers the 14-day booking window, so the demo calendar never
+  empties.
+- **Cold starts:** Render's free service sleeps after 15 minutes idle and takes about a minute
+  to wake. The landing page shows "Waking up the clinic..." meanwhile.
+
 ## What a real deployment would need
 
 This project is a demo. A real clinic deployment would also need patient consent,

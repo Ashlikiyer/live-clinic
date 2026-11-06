@@ -9,12 +9,12 @@ from zoneinfo import ZoneInfo
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
 from app.core.config import get_settings
-from app.db.models import DailyStats, SandboxSession
+from app.db.models import DailyStats, SandboxSession, SeedAppointment
 from app.db.session import check_database, get_engine
 from app.main import create_app
 from app.providers.base import Providers
@@ -129,3 +129,28 @@ def test_stats_are_public_and_have_no_transcripts(client: TestClient) -> None:
     assert body["window_days"] == 7 and len(body["daily"]) == 7
     assert "transcript" not in str(body).lower()
     assert set(body["stage_medians"]) == set(STAGES)
+
+
+def test_cleanup_tops_up_a_stale_seeded_schedule(client: TestClient) -> None:
+    secret = {"X-Cron-Secret": get_settings().cron_secret}
+    client.post("/api/internal/cleanup", headers=secret)  # seeds an empty test database
+    # A seed that still covers the booking window is left alone.
+    assert client.post("/api/internal/cleanup", headers=secret).json()["reseeded"] == 0
+
+    async def age_the_seed() -> None:
+        async with fresh_sessionmaker()() as db, db.begin():
+            await db.execute(
+                delete(SeedAppointment).where(
+                    SeedAppointment.start > datetime.now(UTC) + timedelta(days=3)
+                )
+            )
+
+    asyncio.run(age_the_seed())
+    assert client.post("/api/internal/cleanup", headers=secret).json()["reseeded"] == 1
+
+    async def last_seed_start() -> datetime | None:
+        async with fresh_sessionmaker()() as db:
+            return await db.scalar(select(func.max(SeedAppointment.start)))
+
+    last = asyncio.run(last_seed_start())
+    assert last is not None and last > datetime.now(UTC) + timedelta(days=14)

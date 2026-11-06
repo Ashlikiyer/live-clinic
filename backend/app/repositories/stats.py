@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.call.metrics import STAGE_KEYS
 from app.db.models import Call, DailyStats, SandboxSession, Turn, TurnMetrics
 from app.stats.latency import Rollup, TurnSample, percentile
+from seed.__main__ import seed_if_stale
 
 
 @dataclass
@@ -38,6 +39,14 @@ class StatsRepository:
     def __init__(self, sessionmaker: async_sessionmaker[AsyncSession], tz: ZoneInfo) -> None:
         self._sessionmaker = sessionmaker
         self._tz = tz
+
+    async def refresh_seed_if_stale(self, now: datetime) -> bool:
+        """Re-seed the shared schedule when it no longer covers the booking window.
+
+        Seeded appointments run three weeks ahead of the day they were made; without this the
+        public demo's calendar would empty out a few weeks after deployment."""
+        async with self._sessionmaker() as db:
+            return await seed_if_stale(db, now)
 
     async def window(self, first_day: date, since: datetime) -> dict[date, DayStats]:
         """Per day: the daily rollups plus the not-yet-cleaned live rows since `since`."""

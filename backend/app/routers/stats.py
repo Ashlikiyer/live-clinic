@@ -63,13 +63,18 @@ async def stats(request: Request) -> dict[str, Any]:
 async def cleanup(
     request: Request, x_cron_secret: Annotated[str | None, Header()] = None
 ) -> dict[str, int]:
-    """Daily job: roll expired sessions into daily_stats, then delete them."""
+    """Daily job: roll expired sessions into daily_stats, delete them, and top up the seeded
+    schedule when it no longer covers the booking window."""
     expected = get_settings().cron_secret
     if not x_cron_secret or not hmac.compare_digest(x_cron_secret, expected):
         raise AppError(ErrorCode.UNAUTHORIZED, "Bad cron secret.", 401)
-    result = await _repo(request).cleanup(datetime.now(ZoneInfo(get_settings().clinic_timezone)))
+    now = datetime.now(ZoneInfo(get_settings().clinic_timezone))
+    repo = _repo(request)
+    result = await repo.cleanup(now)
+    reseeded = await repo.refresh_seed_if_stale(now)
     return {
         "deleted_sessions": result.deleted_sessions,
         "rolled_up_calls": result.rolled_up_calls,
         "rolled_up_turns": result.rolled_up_turns,
+        "reseeded": int(reseeded),
     }

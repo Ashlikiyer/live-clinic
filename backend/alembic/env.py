@@ -20,7 +20,8 @@ if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
 # The database URL always comes from DATABASE_URL (or .env), never alembic.ini.
-config.set_main_option("sqlalchemy.url", get_settings().database_url)
+# "%" is special in Alembic's config values; URL-encoded passwords (Supabase) contain it.
+config.set_main_option("sqlalchemy.url", get_settings().database_url.replace("%", "%%"))
 
 target_metadata = Base.metadata
 
