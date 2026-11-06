@@ -1,7 +1,24 @@
 from functools import lru_cache
 from typing import Literal
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+def asyncpg_url(url: str) -> str:
+    """Accept a Postgres URL as hosts give it (Supabase: `postgresql://...?sslmode=require`)
+    and point it at the asyncpg driver this app uses. Pure."""
+    for prefix in (
+        "postgresql://",
+        "postgres://",
+        "postgresql+psycopg://",
+        "postgresql+psycopg2://",
+    ):
+        if url.startswith(prefix):
+            url = "postgresql+asyncpg://" + url[len(prefix) :]
+            break
+    # asyncpg spells libpq's sslmode as ssl.
+    return url.replace("sslmode=", "ssl=")
 
 
 class Settings(BaseSettings):
@@ -30,6 +47,11 @@ class Settings(BaseSettings):
     sessions_per_ip_per_day: int = 30
     clinic_timezone: str = "Asia/Manila"
     provider: Literal["groq", "fake"] = "groq"
+
+    @field_validator("database_url")
+    @classmethod
+    def _use_asyncpg(cls, value: str) -> str:
+        return asyncpg_url(value.strip())
 
 
 @lru_cache

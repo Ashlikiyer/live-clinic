@@ -135,3 +135,16 @@ async def test_fake_providers() -> None:
     llm = FakeLLM(replies=["Sure thing. Which day?"])
     chunks = [c async for c in llm.stream([]) if isinstance(c, str)]
     assert "".join(chunks) == "Sure thing. Which day?"
+
+
+def test_database_urls_from_hosts_use_asyncpg() -> None:
+    from app.core.config import asyncpg_url
+
+    supabase = "postgresql://postgres.abc:pw@aws-0-ap-southeast-1.pooler.supabase.com:5432/postgres"
+    assert asyncpg_url(supabase) == supabase.replace("postgresql://", "postgresql+asyncpg://")
+    assert (
+        asyncpg_url("postgres://u:p@h/db?sslmode=require")
+        == "postgresql+asyncpg://u:p@h/db?ssl=require"
+    )
+    ready = "postgresql+asyncpg://u:p@h/db?ssl=require"
+    assert asyncpg_url(ready) == ready
