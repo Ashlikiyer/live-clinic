@@ -2,8 +2,8 @@
 
 A browser-based AI voice receptionist for a fictional clinic, Bayview Family Clinic. You
 click **Call the clinic** and talk naturally. On screen, you watch the agent book an
-appointment on a live calendar and fill in a patient intake form as you speak. A Latency
-X-ray shows how many milliseconds each reply took and which stage the time went to.
+appointment on a live calendar and fill in a patient intake form as you speak. The public
+`/stats` page shows how many milliseconds replies take and which stage the time goes to.
 
 The full spec is in [docs/LIVE_CLINIC_DESK_SPEC.md](docs/LIVE_CLINIC_DESK_SPEC.md), and the
 rules for AI coding assistants are in [CLAUDE.md](CLAUDE.md).
@@ -61,6 +61,12 @@ rules for AI coding assistants are in [CLAUDE.md](CLAUDE.md).
   [Conversation scenarios](#conversation-scenarios).
 - **Mia's voice (after Phase 4):** Mia now speaks with Groq's Orpheus voice (`hannah`) by
   default. See [Mia's voice](#mias-voice).
+- **Design v2 (after Phase 4):** the landing page, call desk and summary follow the "Live
+  Clinic Desk v2" design: a light, monochrome look with Geist type, soft status colours on the
+  calendar, and a full landing page (hero, doctors, how it works, safety, FAQ). "Type
+  instead" starts a call without the microphone. The Latency X-ray strip was taken off the
+  call desk to keep it simple for callers; the same timings are still collected and shown on
+  `/stats`. The app is light-only now.
 - **Tagalog and Taglish (the spec's stretch goal):** Mia understands English, Tagalog and
   Taglish and replies in the caller's language. See [Tagalog and Taglish](#tagalog-and-taglish).
 

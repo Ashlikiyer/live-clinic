@@ -16,6 +16,16 @@ import { slotKey } from "@/store/reducer";
 
 import { Slot, gridPlacement } from "./Slot";
 
+const initials = (name: string) =>
+  name
+    .replace(/^Dr\.\s*/, "")
+    .split(/\s+/)
+    .map((part) => part[0])
+    .join("")
+    .slice(0, 2);
+
+const COLUMNS = "grid-cols-[52px_repeat(3,minmax(5.5rem,1fr))]";
+
 const ROW_STARTS = Array.from({ length: SLOTS_PER_DAY }, (_, i) => OPEN_MINUTES + i * SLOT_MINUTES);
 const isLunch = (m: number) => m >= LUNCH_START_MINUTES && m < LUNCH_END_MINUTES;
 
@@ -32,44 +42,47 @@ export function DoctorColumns({ date }: { date: string }) {
   const closed = weekday(date) === 0;
 
   return (
-    <div className="min-h-0 flex-1 overflow-auto">
-      <div className="sticky top-0 z-20 grid grid-cols-[3.5rem_repeat(3,minmax(5.5rem,1fr))] gap-1 border-b border-line bg-surface px-2 py-2">
+    <div className="min-h-0 flex-1 overflow-auto border-t border-line">
+      <div className={`sticky top-0 z-20 grid ${COLUMNS} gap-1.5 border-b border-line bg-surface px-[22px] py-3 max-sm:px-3`}>
         <span />
         {doctors.map((d) => (
-          <div key={d.id} className="min-w-0 text-center">
-            <p className="truncate text-xs font-semibold" style={{ color: d.color }}>
-              {d.name}
-            </p>
-            <p className="truncate text-[11px] text-ink-muted">{d.specialty}</p>
+          <div key={d.id} className="flex min-w-0 items-center gap-2.5">
+            <span className="grid size-[30px] flex-none place-items-center rounded-full border border-line bg-surface-muted text-[11px] font-semibold max-xl:hidden">
+              {initials(d.name)}
+            </span>
+            <div className="flex min-w-0 flex-col">
+              <span className="truncate text-[13px] font-semibold">{d.name}</span>
+              <span className="truncate text-[11.5px] text-ink-faint">{d.specialty}</span>
+            </div>
           </div>
         ))}
       </div>
 
       {closed ? (
-        <p className="p-8 text-center text-sm text-ink-muted">Closed on Sundays.</p>
+        <p className="p-8 text-center text-[13px] text-ink-ghost">Closed on Sundays.</p>
       ) : (
         <div
-          className="relative grid grid-cols-[3.5rem_repeat(3,minmax(5.5rem,1fr))] gap-1 p-2"
-          style={{ gridTemplateRows: `repeat(${SLOTS_PER_DAY}, minmax(2.25rem, 1fr))` }}
+          className={`relative grid ${COLUMNS} gap-x-1.5 gap-y-[5px] px-[22px] pb-[18px] pt-3 max-sm:px-3`}
+          style={{ gridTemplateRows: `repeat(${SLOTS_PER_DAY}, 38px)` }}
         >
           {ROW_STARTS.map((m, row) => (
             <span
               key={`label-${m}`}
-              className="pr-1 text-right text-[11px] tabular-nums text-ink-muted"
+              className="self-center font-mono text-[11px] text-ink-ghost"
               style={{ gridRow: row + 1, gridColumn: 1 }}
             >
-              {formatTime(atMinutes(date, m))}
+              {formatTime(atMinutes(date, m)).replace(/\s?[AP]M$/, "")}
             </span>
           ))}
 
           <div
-            className="flex items-center justify-center rounded-lg bg-surface-muted text-xs text-ink-muted"
+            className="bg-stripes flex items-center justify-center rounded-[10px] text-[11px] text-ink-ghost"
             style={{
               gridColumn: "2 / -1",
               gridRow: `${(LUNCH_START_MINUTES - OPEN_MINUTES) / SLOT_MINUTES + 1} / span ${(LUNCH_END_MINUTES - LUNCH_START_MINUTES) / SLOT_MINUTES}`,
             }}
           >
-            Lunch break
+            Lunch break · 12:00–1:00
           </div>
 
           {doctors.map((doctor, col) =>

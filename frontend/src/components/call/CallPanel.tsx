@@ -1,12 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
-
-import { formatDuration } from "@/lib/time";
 import { useCallStore, type VoiceMode } from "@/store/callStore";
 
-import { MicMeter } from "./MicMeter";
-import { Orb } from "./Orb";
+import { MicBars, Orb } from "./Orb";
 import { Transcript } from "./Transcript";
 import { TypeInput } from "./TypeInput";
 
@@ -17,58 +13,26 @@ export interface CallControls {
   onSendText: ((text: string) => void) | null;
   /** The caller is typing: it counts as activity for the silence check. */
   onTyping?: () => void;
+  /** Leave the call screen (the logo in the header). */
+  onHome: () => void;
+  /** Start the scripted demo over (demo calls only). */
+  onReplay?: () => void;
 }
 
-const STATUS_LABEL = {
-  idle: "Ready",
-  connecting: "Connecting...",
-  live: "On call",
-  transferring: "Transferring...",
-  ended: "Call ended",
-} as const;
+/** Which voice Mia is speaking with (it can change mid-call if one stops working). */
+const VOICE_NAME: Record<VoiceMode, string> = {
+  orpheus: "natural voice",
+  kokoro: "in-browser voice",
+  lite: "built-in voice",
+};
 
-function useCallTimer(): string {
-  const startedAt = useCallStore((s) => s.startedAt);
-  const endedAt = useCallStore((s) => s.endedAt);
-  const [now, setNow] = useState<number | null>(null);
-
-  useEffect(() => {
-    if (endedAt !== null) return;
-    const tick = () => setNow(Date.now());
-    const first = setTimeout(tick, 0);
-    const id = setInterval(tick, 1000);
-    return () => {
-      clearTimeout(first);
-      clearInterval(id);
-    };
-  }, [endedAt]);
-
-  if (startedAt === null) return "0:00";
-  return formatDuration(((endedAt ?? now ?? startedAt) - startedAt) / 1000);
-}
-
-function Banner({ tone, children }: { tone: "info" | "warn"; children: React.ReactNode }) {
+function Notice({ children }: { children: React.ReactNode }) {
   return (
-    <div
-      role="status"
-      className={`mx-3 mt-3 rounded-xl px-3 py-2 text-xs leading-relaxed ${
-        tone === "warn"
-          ? "bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-100"
-          : "bg-surface-muted text-ink-muted"
-      }`}
-    >
+    <div role="status" className="mx-2 mt-2 rounded-2xl bg-rose-soft px-3.5 py-2.5 text-xs leading-relaxed text-rose-ink">
       {children}
     </div>
   );
 }
-
-
-/** Which voice Mia is speaking with (it can change mid-call if one stops working). */
-const VOICE_BADGE: Record<VoiceMode, { label: string; title: string }> = {
-  orpheus: { label: "natural voice", title: "Groq Orpheus, generated on the server" },
-  kokoro: { label: "in-browser voice", title: "Kokoro, generated on this device" },
-  lite: { label: "built-in voice", title: "Using your browser's built-in voice" },
-};
 
 export function CallPanel({ controls }: { controls: CallControls }) {
   const status = useCallStore((s) => s.status);
@@ -80,85 +44,63 @@ export function CallPanel({ controls }: { controls: CallControls }) {
   const voiceMode = useCallStore((s) => s.voiceMode);
   const connection = useCallStore((s) => s.connection);
   const notice = useCallStore((s) => s.notice);
-  const activeTools = useCallStore((s) => s.activeTools);
   const transferring = useCallStore(
     (s) => s.status === "transferring" || s.ended?.outcome === "transferred",
   );
-  const timer = useCallTimer();
   const active = status === "live" || status === "connecting" || status === "transferring";
+  const hearing = userSpeaking && !muted;
 
-  const activity = activeTools.length
-    ? `Working: ${activeTools[0].replaceAll("_", " ")}...`
-    : userSpeaking
-      ? "Listening..."
-      : "";
+  const micLabel =
+    kind === "demo"
+      ? "Demo: just watch"
+      : muted
+        ? "Muted"
+        : mic === "starting"
+          ? "Allow your microphone"
+          : mic === "denied"
+            ? "Microphone blocked"
+            : mic === "unavailable"
+              ? "No microphone"
+              : mic === "off"
+                ? "Typing only"
+                : hearing
+                  ? "Hearing you"
+                  : speaking
+                    ? "You can cut in"
+                    : "Mic on";
 
   return (
-    <section
-      aria-label="Call"
-      className="flex h-full min-h-0 flex-col overflow-hidden rounded-2xl border border-line bg-surface"
-    >
-      <div className="flex items-center gap-4 border-b border-line p-4">
-        <Orb speaking={speaking} />
-        <div className="min-w-0 flex-1">
-          <p className="flex items-center gap-2 font-semibold">
-            Mia · Receptionist
-            {kind === "live" && (
-              <span
-                className="rounded-full bg-surface-muted px-2 py-0.5 text-[10px] font-medium text-ink-muted"
-                title={VOICE_BADGE[voiceMode].title}
-              >
-                {VOICE_BADGE[voiceMode].label}
-              </span>
-            )}
-          </p>
-          <p className="flex items-center gap-2 text-sm text-ink-muted">
-            <span className={`size-2 rounded-full ${active ? "bg-green-500" : "bg-ink-muted"}`} />
-            {STATUS_LABEL[status]} · <span className="tabular-nums">{timer}</span>
-          </p>
-          <p className="h-4 truncate text-xs text-brand" aria-live="polite">
-            {activity}
-          </p>
-        </div>
-        <MicMeter />
-      </div>
-
-      {notice && <Banner tone="warn">{notice}</Banner>}
-      {transferring && <Banner tone="info">Transferring to front desk staff...</Banner>}
-      {connection === "reconnecting" && (
-        <Banner tone="warn">Connection dropped. Reconnecting...</Banner>
-      )}
-      {kind === "live" && mic === "denied" && (
-        <Banner tone="warn">
-          Microphone blocked. To talk to Mia, click the lock or site-settings icon in the address
-          bar, allow the microphone, then call again. You can type below meanwhile.
-        </Banner>
-      )}
-      {kind === "live" && mic === "unavailable" && (
-        <Banner tone="warn">No microphone found. You can type your messages below instead.</Banner>
-      )}
-      {kind === "live" && mic === "starting" && (
-        <Banner tone="info">Allow microphone access when your browser asks.</Banner>
-      )}
-      {kind === "demo" && (
-        <Banner tone="info">Scripted demo: no microphone needed. Just watch.</Banner>
-      )}
-
-      <Transcript />
-
-      <div className="space-y-3 border-t border-line p-3">
-        <TypeInput
-          disabled={!active || controls.onSendText === null}
-          onSend={controls.onSendText}
-          onTyping={controls.onTyping}
+    <section aria-label="Call" className="flex h-full min-h-0 flex-col overflow-hidden rounded-3xl border border-line bg-surface">
+      <div className="m-2 flex flex-col items-center gap-3 rounded-[18px] bg-surface-muted px-[18px] pb-4 pt-[22px]">
+        <Orb
+          size={120}
+          mode={speaking ? "speak" : hearing ? "listen" : "idle"}
+          label={speaking ? "Mia is speaking" : "Mia is listening"}
         />
-        <div className="flex gap-2">
+        <div className="flex flex-col items-center gap-0.5">
+          <span className="text-[22px] font-medium tracking-[-0.03em]">Mia</span>
+          <span className="text-[12.5px] text-ink-faint">
+            Bayview receptionist{kind === "live" ? ` · ${VOICE_NAME[voiceMode]}` : ""}
+          </span>
+        </div>
+        <div
+          className="flex h-[30px] items-center gap-2 rounded-full bg-surface px-3"
+          role="meter"
+          aria-label={micLabel}
+          aria-valuemin={0}
+          aria-valuemax={1}
+          aria-valuenow={hearing ? 1 : 0}
+        >
+          <MicBars on={hearing} />
+          <span className="text-[11.5px] font-medium text-ink-muted">{micLabel}</span>
+        </div>
+        <div className="flex w-full gap-2">
           <button
             type="button"
             onClick={controls.onToggleMute}
             disabled={!active || (kind === "live" && mic !== "listening")}
             aria-pressed={muted}
-            className="flex-1 rounded-full border border-line px-4 py-2 text-sm font-medium transition hover:bg-surface-muted disabled:opacity-50"
+            className="h-[46px] flex-1 rounded-full border border-line-strong bg-surface text-sm font-medium transition-colors hover:bg-bg disabled:opacity-50"
           >
             {muted ? "Unmute" : "Mute"}
           </button>
@@ -166,11 +108,35 @@ export function CallPanel({ controls }: { controls: CallControls }) {
             type="button"
             onClick={controls.onEnd}
             disabled={!active}
-            className="flex-1 rounded-full bg-danger px-4 py-2 text-sm font-semibold text-white transition hover:opacity-90 disabled:opacity-50"
+            className="h-[46px] flex-1 rounded-full bg-ink text-sm font-medium text-white transition-colors hover:bg-danger disabled:opacity-50"
           >
             End call
           </button>
         </div>
+      </div>
+
+      {notice && <Notice>{notice}</Notice>}
+      {transferring && <Notice>Transferring you to the front desk…</Notice>}
+      {connection === "reconnecting" && <Notice>Connection dropped. Reconnecting…</Notice>}
+      {kind === "live" && mic === "denied" && (
+        <Notice>
+          Your microphone is blocked. Click the lock or site-settings icon in the address bar, allow
+          the microphone, then call again. You can type below meanwhile.
+        </Notice>
+      )}
+      {kind === "live" && mic === "unavailable" && (
+        <Notice>No microphone found. You can type your messages below instead.</Notice>
+      )}
+
+      <div className="px-[18px] pb-0.5 pt-2 text-xs font-medium text-ink-faint">Conversation</div>
+      <Transcript />
+
+      <div className="border-t border-line p-2.5">
+        <TypeInput
+          disabled={!active || controls.onSendText === null}
+          onSend={controls.onSendText}
+          onTyping={controls.onTyping}
+        />
       </div>
     </section>
   );

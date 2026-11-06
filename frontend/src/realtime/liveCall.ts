@@ -63,13 +63,19 @@ export class LiveCall {
   /** Reply sentences gathered per turn, for voices that speak a whole reply at once. */
   private replyText = new Map<number, string[]>();
   private voice: Voice;
+  private readonly typingOnly: boolean;
 
   /**
    * `choice` is a ready voice, or "orpheus" for server speech (with the browser voice as the
    * backup). `waitForKokoro`: the caller chose Kokoro but it was still loading, so the call
-   * starts on the lite voice and moves to Kokoro once it's ready.
+   * starts on the lite voice and moves to Kokoro once it's ready. `typingOnly`: the caller
+   * chose "Type instead", so the microphone is never asked for.
    */
-  constructor(choice: Voice | "orpheus", { waitForKokoro = false } = {}) {
+  constructor(
+    choice: Voice | "orpheus",
+    { waitForKokoro = false, typingOnly = false }: { waitForKokoro?: boolean; typingOnly?: boolean } = {},
+  ) {
+    this.typingOnly = typingOnly;
     if (choice === "orpheus") {
       const orpheus = new OrpheusVoice((id, text) =>
         this.socket?.send({ type: "tts.request", id, text }),
@@ -116,19 +122,23 @@ export class LiveCall {
     }
 
     // Ask for the mic before connecting, so Mia doesn't greet a permission dialog.
-    store().setMic("starting");
-    try {
-      this.mic = await startMic({
-        onSpeechStart: () => this.onSpeechStart(),
-        onSpeechEnd: (audio, info) => this.onSpeechEnd(audio, info),
-        onMisfire: () => this.onMisfire(),
-        onLevel: (level) => {
-          if (!store().muted) store().setMicLevel(level);
-        },
-      });
-      store().setMic("listening");
-    } catch (error) {
-      store().setMic(error instanceof MicError ? error.reason : "unavailable");
+    if (this.typingOnly) {
+      store().setMic("off");
+    } else {
+      store().setMic("starting");
+      try {
+        this.mic = await startMic({
+          onSpeechStart: () => this.onSpeechStart(),
+          onSpeechEnd: (audio, info) => this.onSpeechEnd(audio, info),
+          onMisfire: () => this.onMisfire(),
+          onLevel: (level) => {
+            if (!store().muted) store().setMicLevel(level);
+          },
+        });
+        store().setMic("listening");
+      } catch (error) {
+        store().setMic(error instanceof MicError ? error.reason : "unavailable");
+      }
     }
     if (this.finished) return;
 

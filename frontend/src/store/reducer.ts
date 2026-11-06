@@ -23,6 +23,8 @@ export interface TranscriptEntry {
   text: string;
   turnId: number | null;
   interrupted?: boolean;
+  /** What Mia was about to say when the caller cut in (shown struck through). */
+  unspoken?: string;
 }
 
 /** A slot already taken in the shared seeded schedule. */
@@ -356,13 +358,20 @@ export function applyServerEvent(state: CallData, event: ServerEvent): CallData 
  * Barge-in: keep only the words the caller actually heard, so the transcript matches
  * the history the server keeps, and drop any further text for that turn.
  */
+/** Keep what was heard; the rest of the reply becomes `unspoken`. */
+function interruptedEntry(entry: TranscriptEntry, playedText: string): TranscriptEntry {
+  const heard = playedText.trim();
+  const rest = entry.text.startsWith(heard) ? entry.text.slice(heard.length).trim() : "";
+  return { ...entry, text: heard, interrupted: true, unspoken: rest || undefined };
+}
+
 export function markInterrupted(state: CallData, turnId: number, playedText: string): CallData {
   const id = `agent-${turnId}`;
   return {
     ...state,
     currentTurnId: Math.max(state.currentTurnId, turnId + 1),
     transcript: state.transcript.map((e) =>
-      e.id === id ? { ...e, text: playedText.trim(), interrupted: true } : e,
+      e.id === id ? interruptedEntry(e, playedText) : e,
     ),
   };
 }

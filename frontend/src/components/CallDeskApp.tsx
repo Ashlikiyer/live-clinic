@@ -1,7 +1,7 @@
 "use client";
 
 import { MotionConfig } from "motion/react";
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { CallDesk, type CallControls } from "@/components/CallDesk";
 import { Landing } from "@/components/Landing";
@@ -17,17 +17,17 @@ import { DEFAULT_VOICE, planVoice, type VoiceChoice } from "@/voice/choice";
 import { LiteVoice, getAudioContext, kokoroState, loadKokoro } from "@/voice/tts";
 
 /** Start a call with the chosen voice (see planVoice for the fallbacks). */
-async function newLiveCall(choice: VoiceChoice): Promise<LiveCall> {
+async function newLiveCall(choice: VoiceChoice, typingOnly: boolean): Promise<LiveCall> {
   const plan = planVoice(choice, kokoroState(), LiteVoice.available());
-  if (plan.kind === "orpheus") return new LiveCall("orpheus");
+  if (plan.kind === "orpheus") return new LiveCall("orpheus", { typingOnly });
   if (plan.kind === "kokoro") {
     try {
-      return new LiveCall(await loadKokoro());
+      return new LiveCall(await loadKokoro(), { typingOnly });
     } catch {
-      return new LiveCall("orpheus"); // Kokoro can't run and there's no built-in voice
+      return new LiveCall("orpheus", { typingOnly }); // Kokoro can't run and there's no built-in voice
     }
   }
-  return new LiveCall(new LiteVoice(), { waitForKokoro: plan.waitForKokoro });
+  return new LiveCall(new LiteVoice(), { waitForKokoro: plan.waitForKokoro, typingOnly });
 }
 
 export function CallDeskApp() {
@@ -36,6 +36,8 @@ export function CallDeskApp() {
   const live = useRef<LiveCall | null>(null);
   const stopDemo = useRef<(() => void) | null>(null);
   const lastVoice = useRef<VoiceChoice>(DEFAULT_VOICE);
+  // "Back to desk" hides the summary so the finished call stays visible.
+  const [summaryOpen, setSummaryOpen] = useState(true);
 
   const stopAll = useCallback(() => {
     live.current?.dispose();
@@ -45,20 +47,23 @@ export function CallDeskApp() {
   }, []);
 
   const startLive = useCallback(
-    async (choice: VoiceChoice) => {
+    async (choice: VoiceChoice, typing = false) => {
       lastVoice.current = choice;
       stopAll();
+      setSummaryOpen(true);
       // Create the audio context inside the click so the browser allows playback.
       getAudioContext();
-      const call = await newLiveCall(choice);
+      const call = await newLiveCall(choice, typing);
       live.current = call;
       await call.start();
+      if (typing) document.getElementById("type-instead")?.focus();
     },
     [stopAll],
   );
 
   const startDemo = useCallback(() => {
     stopAll();
+    setSummaryOpen(true);
     setCalendarSource(null);
     const now = Date.now();
     useCallStore.getState().startCall(now, "demo");
@@ -79,7 +84,14 @@ export function CallDeskApp() {
     });
   }, [stopAll]);
 
+  const backToStart = useCallback(() => {
+    stopAll();
+    useCallStore.getState().reset();
+  }, [stopAll]);
+
   const controls: CallControls = {
+    onHome: backToStart,
+    onReplay: startDemo,
     onEnd: () => (kind === "live" ? void live.current?.end() : endDemo()),
     onSendText: kind === "live" ? (text) => live.current?.sendText(text) : null,
     onTyping: () => live.current?.callerActive(),
@@ -90,28 +102,23 @@ export function CallDeskApp() {
     },
   };
 
-  const backToStart = useCallback(() => {
-    stopAll();
-    useCallStore.getState().reset();
-  }, [stopAll]);
-
   useEffect(() => stopAll, [stopAll]);
 
   return (
     <MotionConfig reducedMotion="user">
       {status === "idle" ? (
-        <Landing onCall={(choice) => void startLive(choice)} onDemo={startDemo} />
+        <Landing onCall={(choice, options) => void startLive(choice, options?.typing)} onDemo={startDemo} />
       ) : (
         <>
           <CallDesk controls={controls} />
-          {status === "ended" && (
+          {status === "ended" && summaryOpen && (
             <SummaryCard
               onCallAgain={() => {
                 backToStart();
                 if (kind === "demo") startDemo();
                 else void startLive(lastVoice.current);
               }}
-              onClose={backToStart}
+              onClose={() => setSummaryOpen(false)}
             />
           )}
         </>

@@ -1,29 +1,42 @@
 @import "tailwindcss";
 
+/* Live Clinic Desk v2: a quiet monochrome base (near-black ink on white and warm greys) with
+   three soft status colours for the calendar: yellow holding, green booked, rose for alerts. */
 :root {
-  --bg: #f4f6f8;
+  --bg: #fafaf9;
   --surface: #ffffff;
-  --surface-muted: #eef1f4;
-  --ink: #14202b;
-  --ink-muted: #5b6875;
-  --line: #dde3e9;
-  --brand: #0f766e;
+  --surface-muted: #f5f5f3;
+  --surface-sunk: #f0f0ee;
+  --ink: #111113;
+  --ink-soft: #4a4a4f;
+  --ink-muted: #6e6e73;
+  --ink-faint: #8a8a8f;
+  --ink-ghost: #a1a1a6;
+  --line: #ececea;
+  --line-strong: #e2e2df;
+  --brand: #111113;
   --brand-ink: #ffffff;
-  --brand-soft: #ccfbf1;
-  --busy: #e3e7eb;
-  --busy-ink: #8a96a3;
-  --holding: #fde68a;
-  --holding-ink: #78350f;
-  --confirmed: #bbf7d0;
-  --confirmed-ink: #14532d;
-  --cancelled: #fecaca;
-  --cancelled-ink: #7f1d1d;
-  --offered: #38bdf8;
-  --glow: #a7f3d0;
-  --danger: #dc2626;
+  --brand-hover: #2b2b2f;
 
-  /* Latency X-ray stages: categorical slots 1-6 in pipeline order, so neighbouring segments
-     are always a validated pair (dataviz validator: CVD ΔE >= 9.1, normal-vision >= 19.6). */
+  --rose-soft: oklch(0.93 0.04 15);
+  --rose-ink: oklch(0.48 0.14 15);
+  --rose: oklch(0.62 0.16 15);
+  --busy: #f3f3f1;
+  --holding: oklch(0.95 0.09 95);
+  --holding-line: oklch(0.82 0.15 88);
+  --holding-ink: oklch(0.42 0.09 75);
+  --confirmed: oklch(0.94 0.06 155);
+  --confirmed-line: oklch(0.72 0.13 155);
+  --confirmed-ink: oklch(0.34 0.09 155);
+  --cancelled: oklch(0.96 0.03 15);
+  --cancelled-line: oklch(0.82 0.08 15);
+  --cancelled-ink: oklch(0.5 0.14 15);
+  --live: oklch(0.68 0.13 155);
+  --thinking: oklch(0.78 0.14 80);
+  --danger: oklch(0.55 0.19 25);
+
+  /* /stats charts: categorical slots 1-6 in pipeline order (dataviz validator: CVD ΔE >= 9.1,
+     normal-vision >= 19.6 on white). */
   --stage-vad: #2a78d6;
   --stage-upload: #eb6834;
   --stage-stt: #1baf7a;
@@ -31,104 +44,103 @@
   --stage-sentence: #e87ba4;
   --stage-tts: #008300;
   --stage-other: #c9ccd1;
-  /* Stats page series: categorical slots 1 and 2 (validated with the stage palette). */
   --series-1: #2a78d6;
   --series-2: #eb6834;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #0b1117;
-    --surface: #121a22;
-    --surface-muted: #19232d;
-    --ink: #e6edf3;
-    --ink-muted: #93a1ae;
-    --line: #26323d;
-    --brand: #2dd4bf;
-    --brand-ink: #04211e;
-    --brand-soft: #123c38;
-    --busy: #222d38;
-    --busy-ink: #6b7a88;
-    --holding: #854d0e;
-    --holding-ink: #fef3c7;
-    --confirmed: #166534;
-    --confirmed-ink: #dcfce7;
-    --cancelled: #7f1d1d;
-    --cancelled-ink: #fee2e2;
-    --glow: #115e59;
-    /* Same hues stepped for the dark surface (validated: CVD ΔE >= 8.4, all >= 3:1). */
-    --stage-vad: #3987e5;
-    --stage-upload: #d95926;
-    --stage-stt: #199e70;
-    --stage-llm: #c98500;
-    --stage-sentence: #d55181;
-    --stage-tts: #008300;
-    --stage-other: #4b5563;
-    --series-1: #3987e5;
-    --series-2: #d95926;
-  }
 }
 
 @theme inline {
   --color-bg: var(--bg);
   --color-surface: var(--surface);
   --color-surface-muted: var(--surface-muted);
+  --color-surface-sunk: var(--surface-sunk);
   --color-ink: var(--ink);
+  --color-ink-soft: var(--ink-soft);
   --color-ink-muted: var(--ink-muted);
+  --color-ink-faint: var(--ink-faint);
+  --color-ink-ghost: var(--ink-ghost);
   --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
   --color-brand: var(--brand);
   --color-brand-ink: var(--brand-ink);
-  --color-brand-soft: var(--brand-soft);
+  --color-brand-hover: var(--brand-hover);
+  --color-rose-soft: var(--rose-soft);
+  --color-rose-ink: var(--rose-ink);
+  --color-rose: var(--rose);
   --color-busy: var(--busy);
-  --color-busy-ink: var(--busy-ink);
   --color-holding: var(--holding);
+  --color-holding-line: var(--holding-line);
   --color-holding-ink: var(--holding-ink);
   --color-confirmed: var(--confirmed);
+  --color-confirmed-line: var(--confirmed-line);
   --color-confirmed-ink: var(--confirmed-ink);
   --color-cancelled: var(--cancelled);
+  --color-cancelled-line: var(--cancelled-line);
   --color-cancelled-ink: var(--cancelled-ink);
-  --color-offered: var(--offered);
+  --color-live: var(--live);
+  --color-thinking: var(--thinking);
   --color-danger: var(--danger);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
 
 body {
-  background: var(--bg);
+  background: var(--surface);
   color: var(--ink);
+  -webkit-font-smoothing: antialiased;
 }
 
-@keyframes orb-pulse {
-  0%, 100% { transform: scale(1); opacity: 0.55; }
-  50% { transform: scale(1.18); opacity: 0.2; }
+::placeholder {
+  color: var(--ink-ghost);
 }
 
-@keyframes hold-pulse {
+@keyframes lcd-breathe {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.06); }
+}
+
+@keyframes lcd-ring {
+  0% { transform: scale(0.7); opacity: 0.6; }
+  100% { transform: scale(1.3); opacity: 0; }
+}
+
+@keyframes lcd-bar {
+  from { transform: scaleY(0.2); }
+  to { transform: scaleY(1); }
+}
+
+@keyframes lcd-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 oklch(0.82 0.15 88 / 0.55); }
+  50% { box-shadow: 0 0 0 5px oklch(0.82 0.15 88 / 0); }
+}
+
+@keyframes lcd-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes lcd-caret {
   0%, 100% { opacity: 1; }
-  50% { opacity: 0.65; }
+  50% { opacity: 0; }
 }
 
-@keyframes mic-bar {
-  0%, 100% { transform: scaleY(0.25); }
-  50% { transform: scaleY(1); }
+.animate-in { animation: lcd-in 0.25s ease-out; }
+.animate-hold { animation: lcd-pulse 1.3s ease-in-out infinite; }
+
+/* Dotted backdrop behind the landing hero photo. */
+.bg-dots {
+  background: radial-gradient(#e7e7e4 1px, transparent 1px) 0 0 / 14px 14px;
 }
 
-.animate-orb { animation: orb-pulse 1.4s ease-in-out infinite; }
-.animate-hold { animation: hold-pulse 1.2s ease-in-out infinite; }
-.animate-mic { animation: mic-bar 0.5s ease-in-out infinite; transform-origin: bottom; }
-
-.hatched {
-  background-image: repeating-linear-gradient(
-    -45deg,
-    rgb(255 255 255 / 0.55) 0 3px,
-    transparent 3px 6px
-  );
+/* The lunch row and the "taken" tile on the landing page. */
+.bg-stripes {
+  background: repeating-linear-gradient(135deg, #fafaf9 0 6px, #f3f3f1 6px 12px);
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .animate-orb,
-  .animate-hold,
-  .animate-mic {
-    animation: none;
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
   }
 }

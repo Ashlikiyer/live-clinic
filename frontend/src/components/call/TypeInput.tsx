@@ -40,15 +40,16 @@ export function TypeInput({
         disabled={disabled}
         maxLength={MAX_TYPED_CHARS}
         autoComplete="off"
-        placeholder={onSend ? "Type instead..." : "Typing is off in the demo"}
-        className="min-w-0 flex-1 rounded-full border border-line bg-surface px-4 py-2 text-sm outline-none focus:border-brand disabled:opacity-50"
+        placeholder={onSend ? "Type instead…" : "Typing is off in the demo"}
+        className="h-11 min-w-0 flex-1 rounded-full border border-line bg-bg px-4 text-sm outline-none focus:border-ink disabled:opacity-50"
       />
       <button
         type="submit"
         disabled={!canSend}
-        className="rounded-full bg-brand px-4 py-2 text-sm font-medium text-brand-ink transition hover:opacity-90 disabled:bg-surface-muted disabled:text-ink-muted"
+        aria-label="Send"
+        className="grid size-11 flex-none place-items-center rounded-full bg-ink text-base text-white transition-opacity disabled:opacity-30"
       >
-        Send
+        ↑
       </button>
     </form>
   );

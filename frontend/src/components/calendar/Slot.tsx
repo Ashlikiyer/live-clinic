@@ -26,17 +26,18 @@ interface SlotProps {
   layoutId?: string;
 }
 
-const KIND_CLASS: Record<Exclude<SlotKind, "free">, string> = {
-  busy: "z-[1] bg-busy text-busy-ink",
-  holding: "z-10 bg-holding text-holding-ink animate-hold ring-2 ring-amber-400",
-  confirmed: "z-10 bg-confirmed text-confirmed-ink ring-1 ring-green-500/50",
-  cancelled: "z-10 bg-cancelled text-cancelled-ink line-through",
+const tile = "flex min-w-0 flex-col justify-center overflow-hidden whitespace-nowrap rounded-[10px] px-2.5";
+
+const KIND_CLASS: Record<AppointmentState, string> = {
+  holding: "z-10 border border-holding-line bg-holding text-holding-ink animate-hold",
+  confirmed: "z-10 border border-confirmed-line bg-confirmed text-confirmed-ink",
+  cancelled: "z-10 border border-cancelled-line bg-cancelled text-cancelled-ink line-through opacity-75",
 };
 
-const KIND_LABEL: Record<Exclude<SlotKind, "free" | "busy">, string> = {
-  holding: "Holding",
-  confirmed: "Confirmed",
-  cancelled: "Cancelled",
+const KIND_TEXT: Record<AppointmentState, { label: string; sub?: string }> = {
+  holding: { label: "Holding for you", sub: "Waiting for your yes" },
+  confirmed: { label: "Booked" },
+  cancelled: { label: "Released" },
 };
 
 export function Slot({ kind, style, label, time, offered, offeredAt, layoutId }: SlotProps) {
@@ -44,32 +45,42 @@ export function Slot({ kind, style, label, time, offered, offeredAt, layoutId }:
     return (
       <motion.div
         key={offered ? `offered-${offeredAt}` : "free"}
-        className={`rounded-lg border border-dashed ${offered ? "z-[2] border-offered bg-sky-400/15" : "border-line"}`}
+        className={`${tile} ${offered ? "z-[2] border border-dashed border-ink bg-bg" : "border border-line bg-surface"}`}
         style={style}
-        initial={offered ? { scale: 0.92, opacity: 0.4 } : false}
+        initial={offered ? { scale: 0.94, opacity: 0.4 } : false}
         animate={{ scale: 1, opacity: 1 }}
         transition={{ duration: 0.3 }}
-        aria-label={offered ? "Offered slot" : undefined}
-      />
+        aria-label={offered ? "Offered by Mia" : undefined}
+      >
+        {offered && (
+          <>
+            <span className="truncate text-xs font-semibold">Available</span>
+            <span className="truncate text-[10.5px] opacity-80">Offered by Mia</span>
+          </>
+        )}
+      </motion.div>
     );
   }
 
   if (kind === "busy") {
-    return <div className={`rounded-lg ${KIND_CLASS.busy}`} style={style} aria-label="Busy" />;
+    return <div className="z-[1] rounded-[10px] bg-busy" style={style} aria-label="Taken" />;
   }
 
+  const text = KIND_TEXT[kind];
+  const title = kind === "confirmed" && label ? label : text.label;
+  const sub = kind === "holding" ? text.sub : time;
   return (
     <motion.div
       layout
       layoutId={layoutId}
-      className={`flex min-w-0 flex-col justify-center overflow-hidden rounded-lg px-2 text-xs ${KIND_CLASS[kind]}`}
+      className={`${tile} transition-colors ${KIND_CLASS[kind]}`}
       style={style}
-      initial={{ opacity: 0, scale: 0.9 }}
+      initial={{ opacity: 0, scale: 0.94 }}
       animate={kind === "cancelled" ? { opacity: [1, 1, 0], scale: 1 } : { opacity: 1, scale: 1 }}
       transition={kind === "cancelled" ? { duration: 2.4, times: [0, 0.6, 1] } : { duration: 0.25 }}
     >
-      <span className="truncate font-semibold">{label ?? KIND_LABEL[kind]}</span>
-      {time && <span className="truncate opacity-80">{time}</span>}
+      <span className="truncate text-xs font-semibold">{title}</span>
+      {sub && <span className="truncate text-[10.5px] opacity-80">{sub}</span>}
     </motion.div>
   );
 }

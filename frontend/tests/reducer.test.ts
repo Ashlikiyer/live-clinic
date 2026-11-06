@@ -88,6 +88,7 @@ describe("transcript", () => {
     const agent = s.transcript.find((e) => e.id === "agent-2");
     expect(agent?.text).toBe("I'm holding Wednesday");
     expect(agent?.interrupted).toBe(true);
+    expect(agent?.unspoken).toBe("at 9:30 AM with Dr. Reyes.");
     expect(s.currentTurnId).toBe(3);
     // Anything still streaming for turn 2 is ignored.
     const after = run([{ type: "agent.text.delta", turn_id: 2, delta: " more" }], s);
