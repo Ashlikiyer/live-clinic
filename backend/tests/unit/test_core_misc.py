@@ -148,3 +148,11 @@ def test_database_urls_from_hosts_use_asyncpg() -> None:
     )
     ready = "postgresql+asyncpg://u:p@h/db?ssl=require"
     assert asyncpg_url(ready) == ready
+
+
+def test_frontend_origin_ignores_a_trailing_slash() -> None:
+    from app.core.config import Settings
+
+    assert Settings(frontend_origin="https://live-clinic.vercel.app/ ").frontend_origin == (
+        "https://live-clinic.vercel.app"
+    )

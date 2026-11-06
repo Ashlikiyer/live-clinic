@@ -48,6 +48,12 @@ class Settings(BaseSettings):
     clinic_timezone: str = "Asia/Manila"
     provider: Literal["groq", "fake"] = "groq"
 
+    @field_validator("frontend_origin")
+    @classmethod
+    def _bare_origin(cls, value: str) -> str:
+        # Browsers send the origin without a trailing slash; CORS compares exactly.
+        return value.strip().rstrip("/")
+
     @field_validator("database_url")
     @classmethod
     def _use_asyncpg(cls, value: str) -> str:
