@@ -8,6 +8,8 @@ from collections.abc import AsyncIterator
 
 from app.agent.prompt import (
     ANYTHING_ELSE_LINE,
+    BUSY_LINE,
+    BUSY_LINE_TL,
     FILLER_LINE,
     GIVE_UP_LINE,
     GOODBYE_LINE,
@@ -29,6 +31,8 @@ FIXED_LINES = frozenset(
         STT_RECOVERY_LINE,
         LLM_RECOVERY_LINE,
         ANYTHING_ELSE_LINE,
+        BUSY_LINE,
+        BUSY_LINE_TL,
         GOODBYE_LINE,
         GIVE_UP_LINE,
         TIME_LIMIT_LINE,

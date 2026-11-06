@@ -59,6 +59,14 @@ class LLMProvider(Protocol):
         ...
 
 
+def busy_seconds(llm: LLMProvider) -> float:
+    """How long until the LLM can answer again: 0 unless every model is rate limited.
+
+    Providers without rate limits (the fake one in production code paths) report 0."""
+    probe = getattr(llm, "busy_seconds", None)
+    return float(probe()) if callable(probe) else 0.0
+
+
 async def complete_text(llm: LLMProvider, messages: list[ChatMessage]) -> str:
     """Collect a short, tool-free reply (e.g. a one-word yes/no check)."""
     parts = [chunk async for chunk in llm.stream(messages) if isinstance(chunk, str)]

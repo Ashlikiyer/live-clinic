@@ -69,6 +69,18 @@ async def test_falls_back_on_rate_limit_and_skips_the_limited_model_afterwards()
     assert [r["model"] for r in fake.requests] == ["qwen", "oss-120b", "oss-120b"]
 
 
+async def test_busy_only_once_every_model_is_limited() -> None:
+    fake = FakeGroq(limited={"qwen"})
+    llm = make(fake)
+    assert llm.busy_seconds() == 0
+    await reply(llm)  # qwen cools down; oss-120b answers
+    assert llm.busy_seconds() == 0
+    fake.limited = {"qwen", "oss-120b", "oss-20b"}
+    with pytest.raises(ProviderError):
+        await reply(llm)
+    assert 25 < llm.busy_seconds() <= 30  # Groq's retry-after was 30 s
+
+
 async def test_all_models_limited_raises_rate_limited() -> None:
     fake = FakeGroq(limited={"qwen", "oss-120b", "oss-20b"})
     with pytest.raises(ProviderError) as exc:

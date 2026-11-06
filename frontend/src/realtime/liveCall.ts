@@ -5,6 +5,7 @@
  */
 
 import { ApiError, callSocketUrl, fetchClinic, forgetSession, getSessionToken } from "@/lib/api";
+import { BUSY_NOTICE } from "@/lib/busy";
 import { callStats } from "@/lib/stats";
 import { useCallStore } from "@/store/callStore";
 import { FallbackVoice, OrpheusVoice } from "@/voice/orpheus";
@@ -32,7 +33,7 @@ const FILLER_AFTER_MS = 700;
 const SILENCE_MS = 8000;
 
 const ERROR_NOTICES: Partial<Record<string, string>> = {
-  RATE_LIMITED: "Busy right now, try again in a minute.",
+  RATE_LIMITED: BUSY_NOTICE,
   CALL_LIMIT_REACHED: "You've reached today's demo call limit. Please try again tomorrow.",
   SESSION_EXPIRED: "Your demo session expired. Please start a new call.",
 };

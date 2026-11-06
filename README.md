@@ -208,8 +208,21 @@ LLM call with Mia's prompt, the 10 tool schemas and a few turns of history is ab
 
 Measured: one call at a natural pace (a turn about every 10 s) fits, including a full
 booking, reschedule and cancel. Quick back-to-back turns, or several calls at once, can
-still hit the limit. Mia then says "Sorry, could you repeat that?" and recovers on the next
-turn. Removing the limit would need Groq's paid tier.
+still hit the limit. Mia then says "Sorry, I had a little trouble there. Could you repeat
+that?" and recovers on the next turn. Removing the limit would need Groq's paid tier.
+
+**When the limit lasts (the busy line):**
+
+- **The landing page:** `GET /api/health` reports `"llm": "busy"` (and `busy_seconds`) once
+  every model has been rate limited for 20 s or more. The landing page then shows "Mia's line
+  is busy right now. Please try again in a minute." and checks again every 30 s.
+- **New calls:** refused with a `RATE_LIMITED` error and that message. No call is created,
+  so it doesn't use up the caller's 10 calls a day.
+- **During a call:** a single rate-limited reply still gets the apology. A second one in a
+  row, or a limit that will last 20 s or more (for example the daily token limit), makes Mia
+  say a friendly busy line instead ("Sorry, our line is very busy right now. Please call back
+  in a few minutes."), in Tagalog for a Tagalog caller. She then hangs up with outcome
+  `abandoned`, and the summary says "Mia's line is busy."
 
 ## Measured latency (Phase 1)
 

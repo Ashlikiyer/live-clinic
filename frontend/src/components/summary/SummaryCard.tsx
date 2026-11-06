@@ -3,6 +3,7 @@
 import { motion } from "motion/react";
 
 import { fetchTranscript } from "@/lib/api";
+import { isBusyEnding } from "@/lib/busy";
 import { FORM_FIELDS } from "@/lib/clinic";
 import { callClock } from "@/lib/deskStatus";
 import { dateOf, formatFormValue, formatLongDate, formatTime, minutesOf } from "@/lib/time";
@@ -21,6 +22,8 @@ const OUTCOME: Record<CallOutcome, { title: string; pill: string; tone: "good" |
   emergency_advised: { title: "Please get help now.", pill: "Emergency advised", tone: "alert" },
   abandoned: { title: "Call ended.", pill: "No booking", tone: "plain" },
 };
+
+const BUSY_OUTCOME = { title: "Mia's line is busy.", pill: "Busy", tone: "alert" } as const;
 
 const PILL_TONE = {
   good: "bg-confirmed text-confirmed-ink",
@@ -50,7 +53,8 @@ export function SummaryCard({ onCallAgain, onClose }: { onCallAgain: () => void;
   const doctors = useCallStore((s) => s.doctors);
   if (!ended) return null;
 
-  const outcome = OUTCOME[ended.outcome];
+  const busy = isBusyEnding(ended.outcome, ended.summary);
+  const outcome = busy ? BUSY_OUTCOME : OUTCOME[ended.outcome];
   const doctor = appointment ? doctors.find((d) => d.id === appointment.doctorId) : undefined;
   const filled = FORM_FIELDS.filter(({ field }) => form[field]);
   const minutes = appointment ? minutesOf(appointment.end) - minutesOf(appointment.start) : 0;
@@ -103,7 +107,11 @@ export function SummaryCard({ onCallAgain, onClose }: { onCallAgain: () => void;
               <span className="text-[13px] text-ink-muted">Arrive 10 minutes early</span>
             </div>
           )}
-          <p className="text-[13.5px] leading-normal text-ink-muted">{ended.summary}</p>
+          <p className="text-[13.5px] leading-normal text-ink-muted">
+            {busy
+              ? "The clinic's AI service is at its free-tier limit right now. Please try again in a minute or two."
+              : ended.summary}
+          </p>
         </div>
 
         {filled.length > 0 && (

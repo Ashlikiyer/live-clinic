@@ -18,6 +18,16 @@ TIME_LIMIT_LINE = (
     "We've reached the time limit for this demo call. Thanks for calling Bayview Family "
     "Clinic. Goodbye!"
 )
+# Groq's free tier is at its limit: a friendly goodbye instead of repeated apologies.
+BUSY_LINE = (
+    "Sorry, our line is very busy right now. Please call back in a few minutes. "
+    "Thanks for calling Bayview Family Clinic."
+)
+BUSY_LINE_TL = (
+    "Pasensya na po, sobrang busy ng linya namin ngayon. "
+    "Pakitawagan na lang po ulit kami pagkalipas ng ilang minuto. Salamat po."
+)
+BUSY_SUMMARY = "Ended early: the clinic's AI service was at its free-tier limit."
 
 # Lines the browser itself says (frontend/src/voice/phrases.ts; a frontend test keeps them in
 # sync). The server may speak them for the browser with Groq Orpheus.

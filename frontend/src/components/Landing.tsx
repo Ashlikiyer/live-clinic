@@ -4,6 +4,7 @@ import Image from "next/image";
 import { useEffect, useState, useSyncExternalStore } from "react";
 
 import { API_URL } from "@/lib/api";
+import { BUSY_NOTICE } from "@/lib/busy";
 import { Orb } from "@/components/call/Orb";
 import { CLINIC_NAME, DOCTORS } from "@/lib/clinic";
 import { DEFAULT_VOICE, VOICE_CHOICES, parseVoiceChoice, type VoiceChoice } from "@/voice/choice";
@@ -13,23 +14,39 @@ import heroPhoto from "../../public/hero-caller.jpg";
 
 const VOICE_KEY = "mia-voice";
 
-type BackendState = "waking" | "ready" | "offline";
+type BackendState = "waking" | "ready" | "busy" | "offline";
 
-/** Wakes the backend (Render free tier sleeps) as soon as the landing page opens. */
+/** While Mia's line is busy, look again this often: Groq's limits clear within minutes. */
+const BUSY_RECHECK_MS = 30_000;
+
+/** Wakes the backend (Render free tier sleeps) as soon as the landing page opens, and says
+ * whether Mia's line is busy (Groq's free tier at its limit). */
 function useBackendWake(): BackendState {
   const [state, setState] = useState<BackendState>("waking");
+  const [check, setCheck] = useState(0);
   useEffect(() => {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 60_000);
+    let recheck: ReturnType<typeof setTimeout> | undefined;
     fetch(`${API_URL}/api/health`, { signal: controller.signal })
-      .then((res) => setState(res.ok ? "ready" : "offline"))
+      .then(async (res) => {
+        if (!res.ok) return setState("offline");
+        const body = (await res.json().catch(() => ({}))) as { llm?: string };
+        if (body.llm === "busy") {
+          setState("busy");
+          recheck = setTimeout(() => setCheck((n) => n + 1), BUSY_RECHECK_MS);
+        } else {
+          setState("ready");
+        }
+      })
       .catch(() => setState("offline"))
       .finally(() => clearTimeout(timeout));
     return () => {
       clearTimeout(timeout);
+      clearTimeout(recheck);
       controller.abort();
     };
-  }, []);
+  }, [check]);
   return state;
 }
 
@@ -83,6 +100,7 @@ function useVoiceChoice(): [VoiceChoice, (choice: VoiceChoice) => void] {
 const BACKEND_LABEL: Record<BackendState, string> = {
   waking: "Waking up the clinic...",
   ready: "Clinic line is open",
+  busy: BUSY_NOTICE,
   offline: "The clinic is offline right now. You can still watch a demo call.",
 };
 
@@ -284,7 +302,13 @@ export function Landing({
               <span className="flex items-center gap-2">
                 <span
                   className={`size-2 rounded-full ${
-                    backend === "ready" ? "bg-live" : backend === "waking" ? "bg-thinking" : "bg-ink-ghost"
+                    backend === "ready"
+                      ? "bg-live"
+                      : backend === "waking"
+                        ? "bg-thinking"
+                        : backend === "busy"
+                          ? "bg-rose"
+                          : "bg-ink-ghost"
                   }`}
                 />
                 {BACKEND_LABEL[backend]}

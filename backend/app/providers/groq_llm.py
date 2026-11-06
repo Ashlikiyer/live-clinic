@@ -159,6 +159,12 @@ class GroqLLM:
         self._max_tokens = max_tokens
         self._cooldown_until: dict[str, float] = {}
 
+    def busy_seconds(self) -> float:
+        """Seconds until some model is off its rate-limit cooldown; 0 if one is free now."""
+        now = time.monotonic()
+        waits = [self._cooldown_until.get(m.name, 0) - now for m in self._models]
+        return max(0.0, min(waits))
+
     def _order(self) -> list[ModelChoice]:
         now = time.monotonic()
         ready = [m for m in self._models if self._cooldown_until.get(m.name, 0) <= now]

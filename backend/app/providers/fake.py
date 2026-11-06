@@ -53,8 +53,15 @@ class FakeLLM:
     replies: list[str | ToolStep] = field(default_factory=list)
     delay_s: float = 0.0
     fail: bool = False
+    # The error a failing reply raises (RATE_LIMITED to test the busy line).
+    fail_code: ErrorCode = ErrorCode.LLM_FAILED
+    # Pretend every model is rate limited for this long (tests of the busy line).
+    busy_s: float = 0.0
     calls: list[list[ChatMessage]] = field(default_factory=list)
     tools_seen: list[list[dict[str, Any]] | None] = field(default_factory=list)
+
+    def busy_seconds(self) -> float:
+        return self.busy_s
 
     async def stream(
         self, messages: list[ChatMessage], tools: list[dict[str, Any]] | None = None
@@ -62,7 +69,7 @@ class FakeLLM:
         self.calls.append(list(messages))
         self.tools_seen.append(tools)
         if self.fail:
-            raise ProviderError(ErrorCode.LLM_FAILED, "Fake reply failure.")
+            raise ProviderError(self.fail_code, "Fake reply failure.")
         last_user = next((m.content for m in reversed(messages) if m.role == "user"), "")
         step = self.replies.pop(0) if self.replies else f"You said {last_user}. Anything else?"
         text = step.text if isinstance(step, ToolStep) else step

@@ -15,6 +15,9 @@ from app.agent.context import ToolContext
 from app.agent.handlers import run_tool
 from app.agent.prompt import (
     ANYTHING_ELSE_LINE,
+    BUSY_LINE,
+    BUSY_LINE_TL,
+    BUSY_SUMMARY,
     GIVE_UP_LINE,
     GOODBYE_LINE,
     LLM_RECOVERY_LINE,
@@ -22,9 +25,11 @@ from app.agent.prompt import (
     build_system_prompt,
 )
 from app.agent.tools import tool_specs
-from app.call.emergency import detect_emergency, emergency_reply
+from app.call.busy import should_hang_up
+from app.call.emergency import detect_emergency, emergency_reply, looks_tagalog
 from app.call.sentences import MetaTextFilter, SentenceSplitter, is_question
-from app.providers.base import ChatMessage, ProviderError, ToolCallRequest
+from app.core.errors import ErrorCode
+from app.providers.base import ChatMessage, ProviderError, ToolCallRequest, busy_seconds
 from app.schemas.events import now_ms
 
 if TYPE_CHECKING:
@@ -178,6 +183,16 @@ async def _reply(call: "CallSession", turn_id: int) -> None:
         if not entry.text:
             call.history.entries.remove(entry)
         await call.send_error(exc.code, exc.message, exc.retryable)
+        if exc.code == ErrorCode.RATE_LIMITED:
+            call.rate_limited_in_a_row += 1
+            if should_hang_up(call.rate_limited_in_a_row, busy_seconds(call.providers.llm)):
+                # Groq's free tier is out: say so kindly and hang up, rather than apologize
+                # again and again.
+                busy = BUSY_LINE_TL if looks_tagalog(call.history.last_user_text()) else BUSY_LINE
+                await call.speak(busy, turn_id)
+                call.save_tool_calls(record)
+                await call.end("abandoned", BUSY_SUMMARY)
+                return
         await call.speak(LLM_RECOVERY_LINE, turn_id)
         # Tools may have run before the LLM failed (a cancel, a booking): keep their audit.
         call.save_tool_calls(record)
@@ -191,6 +206,7 @@ async def _reply(call: "CallSession", turn_id: int) -> None:
     record.db_turn_id = call.save_turn("assistant", entry.text, entry.interrupted)
     call.save_tool_calls(record)
     call.persist_metrics(turn_id)
+    call.rate_limited_in_a_row = 0
 
     if (end := call.tool_state.end_request) is not None:
         call.tool_state.end_request = None

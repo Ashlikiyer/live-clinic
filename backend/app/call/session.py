@@ -16,6 +16,7 @@ from fastapi import WebSocket, WebSocketDisconnect, status
 
 from app.agent.context import CallToolState
 from app.agent.prompt import GREETING, LLM_RECOVERY_LINE, RECONNECT_LINE, TIME_LIMIT_LINE
+from app.call.busy import BUSY_NOTICE, line_is_busy
 from app.call.interrupt import History
 from app.call.metrics import TurnTiming, call_stats
 from app.call.sentences import split_sentences
@@ -23,7 +24,7 @@ from app.call.speech import MAX_SPEECH_REQUESTS_PER_CALL, speech_allowed
 from app.call.turn import run_turn
 from app.core.config import Settings
 from app.core.errors import ErrorCode
-from app.providers.base import ProviderError, Providers
+from app.providers.base import ProviderError, Providers, busy_seconds
 from app.providers.tts_cache import FIXED_LINES
 from app.repositories.booking import BookingRepository
 from app.repositories.calls import CallStore, SessionInfo
@@ -96,6 +97,8 @@ class CallSession:
         self.outcome: str | None = None
         self.voice = "kokoro"
         self.speech_requests = 0
+        # Replies that failed on Groq's rate limit in a row (see app/call/busy.py).
+        self.rate_limited_in_a_row = 0
 
         self._send_lock = asyncio.Lock()
         self._current: asyncio.Task[None] | None = None
@@ -242,6 +245,14 @@ class CallSession:
                     self.call_id = candidate
                     resumed = True
                     await self._restore_history()
+
+        if not resumed and line_is_busy(busy_seconds(self.providers.llm)):
+            # Every Groq model is at its limit: say so now instead of greeting a caller Mia
+            # can't answer. No call is created, so it doesn't use up the daily allowance.
+            await self.send_error(ErrorCode.RATE_LIMITED, BUSY_NOTICE, retryable=False)
+            await self.ws.close(code=status.WS_1013_TRY_AGAIN_LATER)
+            self.ended = True
+            return
 
         if not resumed:
             since = datetime.now(UTC) - timedelta(days=1)

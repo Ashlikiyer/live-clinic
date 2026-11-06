@@ -7,9 +7,18 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from fastapi.testclient import TestClient
 
-from app.agent.prompt import GREETING, LLM_RECOVERY_LINE, RECONNECT_LINE, STT_RECOVERY_LINE
+from app.agent.prompt import (
+    BUSY_LINE,
+    BUSY_LINE_TL,
+    BUSY_SUMMARY,
+    GREETING,
+    LLM_RECOVERY_LINE,
+    RECONNECT_LINE,
+    STT_RECOVERY_LINE,
+)
 from app.call.emergency import EMERGENCY_REPLY_TL
 from app.core.config import get_settings
+from app.core.errors import ErrorCode
 from app.providers.fake import FakeLLM, FakeSTT
 from app.repositories.calls import MemoryCallStore
 from app.routers.call_ws import origin_allowed
@@ -285,3 +294,64 @@ def test_a_reply_stops_at_its_first_question(client: TestClient, llm: FakeLLM) -
     ]
     # The LLM's history holds only what was said.
     assert llm.calls and "Yes, please" not in str(llm.calls[-1])
+
+
+# ---------- busy line (Groq's free tier at its limit) ----------
+
+
+def rate_limited(llm: FakeLLM, busy_s: float = 0) -> None:
+    llm.fail = True
+    llm.fail_code = ErrorCode.RATE_LIMITED
+    llm.busy_s = busy_s
+
+
+def test_one_rate_limit_gets_an_apology(client: TestClient, llm: FakeLLM) -> None:
+    rate_limited(llm)
+    token = new_token(client)
+    with client.websocket_connect(f"/ws/call?token={token}") as ws:
+        start_call(ws)
+        ws.send_json({"type": "text.message", "text": "hello", "ts": 1})
+        events = receive_until(ws, "agent.text.done", turn_id=1)
+    assert text_of(events, 1) == LLM_RECOVERY_LINE
+    assert not any(e["type"] == "call.ended" for e in events)
+
+
+def test_repeated_rate_limits_end_the_call_with_the_busy_line(
+    client: TestClient, llm: FakeLLM
+) -> None:
+    rate_limited(llm)
+    token = new_token(client)
+    with client.websocket_connect(f"/ws/call?token={token}") as ws:
+        start_call(ws)
+        ws.send_json({"type": "text.message", "text": "hello", "ts": 1})
+        receive_until(ws, "agent.text.done", turn_id=1)
+        ws.send_json({"type": "text.message", "text": "hello again", "ts": 2})
+        events = receive_until(ws, "call.ended")
+    assert text_of(events, 2) == BUSY_LINE
+    assert events[-1]["outcome"] == "abandoned" and events[-1]["summary"] == BUSY_SUMMARY
+    assert any(e["type"] == "error" and e["code"] == "RATE_LIMITED" for e in events)
+
+
+def test_a_long_limit_hangs_up_at_once_in_the_callers_language(
+    client: TestClient, llm: FakeLLM
+) -> None:
+    token = new_token(client)
+    with client.websocket_connect(f"/ws/call?token={token}") as ws:
+        start_call(ws)
+        rate_limited(llm, busy_s=600)  # mid-call, e.g. the daily token limit runs out
+        ws.send_json({"type": "text.message", "text": "Gusto ko po sanang mag-book", "ts": 1})
+        events = receive_until(ws, "call.ended")
+    assert text_of(events, 1) == BUSY_LINE_TL
+
+
+def test_new_calls_are_turned_away_while_the_line_is_busy(
+    client: TestClient, store: MemoryCallStore, llm: FakeLLM
+) -> None:
+    llm.busy_s = 120
+    token = new_token(client)
+    with client.websocket_connect(f"/ws/call?token={token}") as ws:
+        ws.send_json({"type": "call.start", "ts": 1})
+        event = ws.receive_json()
+    assert event["type"] == "error" and event["code"] == "RATE_LIMITED"
+    assert event["retryable"] is False and "busy" in event["message"]
+    assert store.calls == {}  # nothing created, so the caller's daily allowance is untouched
